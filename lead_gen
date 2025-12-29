@@ -153,16 +153,16 @@ for each  page in pages_seed
 	input_items_A.add(user_item_A);
 	body_A = Map();
 	body_A.put("model",MODEL);
-	body_A.put("input",input_items_A);
+	body_A.put("messages",input_items_A);
 	body_A.put("temperature",0);
-	body_A.put("tools",tools_list_A);
+	// body_A.put("tools",tools_list_A);
 	respA = null;
 	rawA = null;
 	try 
 	{
 		respA = invokeurl
 		[
-			url :"https://api.openai.com/v1/responses"
+			url :"https://api.openai.com/v1/chat/completions"
 			type :POST
 			body:body_A.toString()
 			headers:headers
@@ -175,35 +175,18 @@ for each  page in pages_seed
 	// Extract assistant text
 	try 
 	{
-		if(respA != null && respA.containsKey("output_text"))
+		if(respA != null && respA.containsKey("choices"))
 		{
-			rawA = respA.get("output_text");
-		}
-		if(rawA == null || rawA.trim() == "")
-		{
-			output_list_A = respA.get("output");
-			if(output_list_A != null)
+			choices_list = respA.get("choices");
+			if(choices_list != null && choices_list.size() > 0)
 			{
-				for each  out_item_A in output_list_A
+				choice0 = choices_list.get(0);
+				if(choice0 != null && choice0.containsKey("message"))
 				{
-					if(out_item_A != null && out_item_A.containsKey("content"))
+					mess = choice0.get("message");
+					if(mess != null && mess.containsKey("content"))
 					{
-						content_list_A = out_item_A.get("content");
-						if(content_list_A != null)
-						{
-							for each  cA in content_list_A
-							{
-								if(cA != null && cA.containsKey("text"))
-								{
-									rawA = cA.get("text");
-									break;
-								}
-							}
-						}
-					}
-					if(rawA != null && rawA.trim() != "")
-					{
-						break;
+						rawA = mess.get("content");
 					}
 				}
 			}
@@ -490,16 +473,16 @@ for each  comp2 in matching_companies
 	input_items_1.add(user_item_1);
 	body_1 = Map();
 	body_1.put("model",MODEL);
-	body_1.put("input",input_items_1);
+	body_1.put("messages",input_items_1);
 	body_1.put("temperature",0);
-	body_1.put("tools",tools_list_1);
+	// body_1.put("tools",tools_list_1);
 	resp1 = null;
 	raw1 = null;
 	try 
 	{
 		resp1 = invokeurl
 		[
-			url :"https://api.openai.com/v1/responses"
+			url :"https://api.openai.com/v1/chat/completions"
 			type :POST
 			body:body_1.toString()
 			headers:headers
@@ -512,35 +495,18 @@ for each  comp2 in matching_companies
 	// Extract assistant text
 	try 
 	{
-		if(resp1 != null && resp1.containsKey("output_text"))
+		if(resp1 != null && resp1.containsKey("choices"))
 		{
-			raw1 = resp1.get("output_text");
-		}
-		if(raw1 == null || raw1.trim() == "")
-		{
-			output_list_1 = resp1.get("output");
-			if(output_list_1 != null)
+			choices_list_1 = resp1.get("choices");
+			if(choices_list_1 != null && choices_list_1.size() > 0)
 			{
-				for each  out_item_1 in output_list_1
+				choice0_1 = choices_list_1.get(0);
+				if(choice0_1 != null && choice0_1.containsKey("message"))
 				{
-					if(out_item_1 != null && out_item_1.containsKey("content"))
+					mess_1 = choice0_1.get("message");
+					if(mess_1 != null && mess_1.containsKey("content"))
 					{
-						content_list_1 = out_item_1.get("content");
-						if(content_list_1 != null)
-						{
-							for each  c1 in content_list_1
-							{
-								if(c1 != null && c1.containsKey("text"))
-								{
-									raw1 = c1.get("text");
-									break;
-								}
-							}
-						}
-					}
-					if(raw1 != null && raw1.trim() != "")
-					{
-						break;
+						raw1 = mess_1.get("content");
 					}
 				}
 			}
@@ -578,20 +544,18 @@ for each  comp2 in matching_companies
 	input_items_2.add(user_item_2);
 	body_2 = Map();
 	body_2.put("model",MODEL);
-	body_2.put("input",input_items_2);
+	body_2.put("messages",input_items_2);
 	body_2.put("temperature",0);
-	text_map = Map();
 	format_map = Map();
 	format_map.put("type","json_object");
-	text_map.put("format",format_map);
-	body_2.put("text",text_map);
+	body_2.put("response_format",format_map);
 	resp2 = null;
 	raw2 = null;
 	try 
 	{
 		resp2 = invokeurl
 		[
-			url :"https://api.openai.com/v1/responses"
+			url :"https://api.openai.com/v1/chat/completions"
 			type :POST
 			body:body_2.toString()
 			headers:headers
@@ -604,35 +568,18 @@ for each  comp2 in matching_companies
 	// Extract assistant text from call 2
 	try 
 	{
-		if(resp2 != null && resp2.containsKey("output_text"))
+		if(resp2 != null && resp2.containsKey("choices"))
 		{
-			raw2 = resp2.get("output_text");
-		}
-		if(raw2 == null || raw2.trim() == "")
-		{
-			output_list_2 = resp2.get("output");
-			if(output_list_2 != null)
+			choices_list_2 = resp2.get("choices");
+			if(choices_list_2 != null && choices_list_2.size() > 0)
 			{
-				for each  out_item_2 in output_list_2
+				choice0_2 = choices_list_2.get(0);
+				if(choice0_2 != null && choice0_2.containsKey("message"))
 				{
-					if(out_item_2 != null && out_item_2.containsKey("content"))
+					mess_2 = choice0_2.get("message");
+					if(mess_2 != null && mess_2.containsKey("content"))
 					{
-						content_list_2 = out_item_2.get("content");
-						if(content_list_2 != null)
-						{
-							for each  c2 in content_list_2
-							{
-								if(c2 != null && c2.containsKey("text"))
-								{
-									raw2 = c2.get("text");
-									break;
-								}
-							}
-						}
-					}
-					if(raw2 != null && raw2.trim() != "")
-					{
-						break;
+						raw2 = mess_2.get("content");
 					}
 				}
 			}
