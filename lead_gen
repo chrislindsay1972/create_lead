@@ -53,14 +53,46 @@ if(jobTitle != null)
 	target_job_title = jobTitle.trim();
 }
 // -----------------------------------------
+// Build fallback job titles list based on requested title
+// -----------------------------------------
+fallback_titles = List();
+fallback_titles.add(target_job_title);
+// Add common alternatives for CFO
+if(target_job_title.toLowerCase() == "cfo" || target_job_title.toLowerCase().indexOf("chief financial") >= 0)
+{
+	fallback_titles.add("Finance Director");
+	fallback_titles.add("Head of Finance");
+	fallback_titles.add("Financial Controller");
+	fallback_titles.add("VP Finance");
+}
+// Add common alternatives for CEO
+if(target_job_title.toLowerCase() == "ceo" || target_job_title.toLowerCase().indexOf("chief executive") >= 0)
+{
+	fallback_titles.add("Managing Director");
+	fallback_titles.add("Founder");
+	fallback_titles.add("General Manager");
+}
+// Add common alternatives for CTO
+if(target_job_title.toLowerCase() == "cto" || target_job_title.toLowerCase().indexOf("chief technology") >= 0)
+{
+	fallback_titles.add("VP Engineering");
+	fallback_titles.add("Head of Engineering");
+	fallback_titles.add("Technical Director");
+}
+// Build search string for fallback titles
+fallback_search_str = "";
+for each  ftitle in fallback_titles
+{
+	if(fallback_search_str != "")
+	{
+		fallback_search_str = fallback_search_str + " OR ";
+	}
+	fallback_search_str = fallback_search_str + "\"" + ftitle + "\"";
+}
+// -----------------------------------------
 // Helper: parse company_size into a normalised filter (NO split)
-// Supports:
-// - "100" (single number => match ranges containing it)
-// - "51-200" (range)
-// - "1000+" (min)
 // -----------------------------------------
 size_filter_type = "unknown";
-// "single" | "range" | "min" | "unknown"
 size_single = 0;
 size_lower = 0;
 size_upper = 0;
@@ -113,8 +145,7 @@ if(requested_size != "")
 	}
 }
 // -----------------------------------------
-// Pagination controls (NO while)
-// Attempt 3 pages * 10 = 30 candidates, then trim to 20.
+// Pagination controls
 // -----------------------------------------
 max_companies = 20;
 page_size = 10;
@@ -125,7 +156,7 @@ pages_seed.add(3);
 next_page_token = null;
 companies_found = List();
 // -----------------------------------------
-// CALL A: Company discovery pages (UK) - Using Perplexity with web search
+// CALL A: Company discovery pages (UK)
 // -----------------------------------------
 for each  page in pages_seed
 {
@@ -145,7 +176,7 @@ for each  page in pages_seed
 	{
 		token_str = next_page_token;
 	}
-	promptA = "Search the web and find UK companies in the " + requested_sector + " sector with approximately " + requested_size + " employees.\n\n" + "Page: " + page + " of results (return " + page_size + " companies per page).\n\n" + "For each company, search for and provide:\n" + "1. Company name\n" + "2. Official website URL\n" + "3. Employee size range (e.g., '1-10', '11-50', '51-200', '201-500', '501-1000', '1000+')\n" + "4. Location (city, UK)\n" + "5. Specific sector/industry\n\n" + "Return ONLY a valid JSON object with no markdown formatting, no code blocks, no explanation.\n" + "The response must start with { and end with }\n\n" + "JSON schema:\n" + "{\n" + "  \"companies\": [\n" + "    {\"name\": \"Company Name\", \"website\": \"https://example.com\", \"employee_size\": \"51-200\", \"location\": \"London, UK\", \"sector\": \"Finance\", \"source_url\": \"https://source.com\"}\n" + "  ],\n" + "  \"next_page_token\": \"page2\" \n" + "}\n\n" + "Set next_page_token to null if no more results exist.";
+	promptA = "Find UK companies in the " + requested_sector + " sector with around " + requested_size + " employees.\n\n" + "Return " + page_size + " companies. Page " + page + ".\n\n" + "For each company provide: name, website, employee_size (e.g. '51-200'), location, sector.\n\n" + "Return ONLY JSON, no markdown:\n" + "{\"companies\":[{\"name\":\"\",\"website\":\"\",\"employee_size\":\"\",\"location\":\"\",\"sector\":\"\"}],\"next_page_token\":null}";
 	input_items_A = List();
 	user_item_A = Map();
 	user_item_A.put("role","user");
@@ -172,7 +203,6 @@ for each  page in pages_seed
 		info "Discovery API call failed: " + e_callA;
 		continue;
 	}
-	// Extract assistant text from Perplexity response (OpenAI-compatible format)
 	try 
 	{
 		if(respA != null && respA.containsKey("choices"))
@@ -200,7 +230,6 @@ for each  page in pages_seed
 	{
 		continue;
 	}
-	// Slice JSON from response
 	jsonA = rawA;
 	try 
 	{
@@ -231,7 +260,6 @@ for each  page in pages_seed
 		page_companies = List();
 	}
 	next_page_token = disc_map.get("next_page_token");
-	// Add companies to companies_found (dedupe by website)
 	for each  c in page_companies
 	{
 		if(c == null)
@@ -248,7 +276,6 @@ for each  page in pages_seed
 			continue;
 		}
 		wlc = (w + "").trim().toLowerCase();
-		// Remove https:// prefix using subString (NO replace)
 		if(wlc.startsWith("https://"))
 		{
 			wlc = wlc.subString(8,wlc.length());
@@ -267,7 +294,6 @@ for each  page in pages_seed
 			if(existing != null && existing.get("website") != null)
 			{
 				exw = (existing.get("website") + "").trim().toLowerCase();
-				// Remove https:// prefix using subString (NO replace)
 				if(exw.startsWith("https://"))
 				{
 					exw = exw.subString(8,exw.length());
@@ -294,7 +320,7 @@ for each  page in pages_seed
 	}
 }
 // -----------------------------------------
-// Filter companies by size + sector (best-effort)
+// Filter companies by size + sector
 // -----------------------------------------
 matching_companies = List();
 for each  comp in companies_found
@@ -313,7 +339,6 @@ for each  comp in companies_found
 	{
 		comp_size = (comp.get("employee_size") + "").trim();
 	}
-	// sector match
 	sector_match = false;
 	if(requested_sector == "")
 	{
@@ -333,7 +358,6 @@ for each  comp in companies_found
 			}
 		}
 	}
-	// size match (NO split)
 	size_match = false;
 	if(requested_size == "" || size_filter_type == "unknown")
 	{
@@ -414,7 +438,10 @@ for each  comp in companies_found
 	}
 }
 // -----------------------------------------
-// Enrich each company with two contacts using Perplexity web search
+// Enrich each company with contacts
+// SIMPLIFIED: Two-step approach
+// Step 1: Find the person (name + title + LinkedIn)
+// Step 2: If no result, try with fallback titles
 // -----------------------------------------
 results = List();
 for each  comp2 in matching_companies
@@ -433,7 +460,7 @@ for each  comp2 in matching_companies
 	{
 		company_name = (comp2.get("name") + "").trim();
 	}
-	// Derive domain (NO replace - use subString)
+	// Derive domain
 	domain_lc = website.trim().toLowerCase();
 	if(domain_lc.startsWith("https://"))
 	{
@@ -458,334 +485,448 @@ for each  comp2 in matching_companies
 		domain_lc = domain_lc.subString(4,domain_lc.length());
 	}
 	domain = domain_lc;
-	// -------- CALL 1: Contact discovery with Perplexity web search (IMPROVED PROMPT)
 	company_name_str = "Unknown Company";
 	if(company_name != null && company_name.trim() != "")
 	{
 		company_name_str = company_name;
 	}
-	prompt1 = "Search the web thoroughly to find executive contact information for " + company_name_str + " (website: " + website + ", domain: " + domain + ").\n\n" + "PRIORITY SEARCH TARGETS:\n" + "1. PRIMARY: Find someone with job title '" + target_job_title + "' or equivalent (e.g., Chief Financial Officer, Finance Director)\n" + "2. SECONDARY: Find another C-level executive (CEO, COO, CTO, etc.)\n\n" + "SEARCH THESE SOURCES (in order of priority):\n" + "1. LinkedIn - Search 'site:linkedin.com/in " + company_name_str + " " + target_job_title + "' - GET THE FULL LINKEDIN URL\n" + "2. Company website About/Team/Leadership page at " + website + "\n" + "3. Companies House UK filings\n" + "4. Press releases and news articles\n" + "5. Crunchbase, ZoomInfo, RocketReach profiles\n\n" + "EMAIL DISCOVERY:\n" + "- Search for actual email addresses in press releases, job postings, contact pages\n" + "- Look for email patterns like: firstname@" + domain + ", firstname.lastname@" + domain + ", first.last@" + domain + "\n" + "- Check if company uses a different email domain than website\n\n" + "Return ONLY valid JSON. No markdown, no code blocks, no explanation.\n" + "Response must start with { and end with }\n\n" + "{\n" + "  \"primary_stakeholder\": {\n" + "    \"name\": \"Full Name or null\",\n" + "    \"job_title\": \"Exact Title or null\",\n" + "    \"company\": \"" + company_name_str + "\",\n" + "    \"email\": \"verified email or null\",\n" + "    \"phone\": \"phone number or null\",\n" + "    \"location\": \"City, Country or null\",\n" + "    \"linkedin_url\": \"https://linkedin.com/in/profilename or null\",\n" + "    \"company_website\": \"" + website + "\",\n" + "    \"source_url\": \"URL where you found this info\",\n" + "    \"notes\": \"How you found this person\"\n" + "  },\n" + "  \"secondary_stakeholder\": {\n" + "    \"name\": \"Full Name or null\",\n" + "    \"job_title\": \"Exact Title or null\",\n" + "    \"company\": \"" + company_name_str + "\",\n" + "    \"email\": \"verified email or null\",\n" + "    \"phone\": \"phone number or null\",\n" + "    \"location\": \"City, Country or null\",\n" + "    \"linkedin_url\": \"https://linkedin.com/in/profilename or null\",\n" + "    \"company_website\": \"" + website + "\",\n" + "    \"source_url\": \"URL where you found this info\",\n" + "    \"notes\": \"How you found this person\"\n" + "  },\n" + "  \"email_pattern_hint\": \"firstname.lastname@" + domain + " or null\",\n" + "  \"email_pattern_source\": \"Where you found this pattern\",\n" + "  \"email_examples\": [\"any verified emails found\"]\n" + "}\n";
-	input_items_1 = List();
-	user_item_1 = Map();
-	user_item_1.put("role","user");
-	user_item_1.put("content",prompt1);
-	input_items_1.add(user_item_1);
-	body_1 = Map();
-	body_1.put("model",MODEL);
-	body_1.put("messages",input_items_1);
-	body_1.put("temperature",0);
-	resp1 = null;
-	raw1 = null;
+	// -----------------------------------------
+	// STEP 1: Simple search for person's name and LinkedIn
+	// -----------------------------------------
+	prompt_find = "Find the " + fallback_search_str + " at " + company_name_str + " (" + website + ").\n\n" + "Search LinkedIn and company website to find:\n" + "1. Their full name\n" + "2. Exact job title\n" + "3. LinkedIn profile URL (format: https://linkedin.com/in/username)\n\n" + "Also find another senior executive (CEO, COO, or other C-level).\n\n" + "Return ONLY JSON:\n" + "{\"primary\":{\"name\":\"\",\"title\":\"\",\"linkedin\":\"\"},\"secondary\":{\"name\":\"\",\"title\":\"\",\"linkedin\":\"\"},\"source\":\"\"}";
+	input_find = List();
+	user_find = Map();
+	user_find.put("role","user");
+	user_find.put("content",prompt_find);
+	input_find.add(user_find);
+	body_find = Map();
+	body_find.put("model",MODEL);
+	body_find.put("messages",input_find);
+	body_find.put("temperature",0);
+	resp_find = null;
+	raw_find = null;
 	try 
 	{
-		resp1 = invokeurl
+		resp_find = invokeurl
 		[
 			url :"https://api.perplexity.ai/chat/completions"
 			type :POST
-			body:body_1.toString()
+			body:body_find.toString()
 			headers:headers
 		];
 	}
-	catch (e_call1)
+	catch (e_find)
 	{
-		info "Contact discovery API call failed for " + company_name_str + ": " + e_call1;
+		info "Find person API call failed for " + company_name_str + ": " + e_find;
 		continue;
 	}
-	// Extract assistant text from Perplexity response
 	try 
 	{
-		if(resp1 != null && resp1.containsKey("choices"))
+		if(resp_find != null && resp_find.containsKey("choices"))
 		{
-			choices_1 = resp1.get("choices");
-			if(choices_1 != null && choices_1.size() > 0)
+			choices_find = resp_find.get("choices");
+			if(choices_find != null && choices_find.size() > 0)
 			{
-				first_choice_1 = choices_1.get(0);
-				if(first_choice_1 != null && first_choice_1.containsKey("message"))
+				first_find = choices_find.get(0);
+				if(first_find != null && first_find.containsKey("message"))
 				{
-					message_1 = first_choice_1.get("message");
-					if(message_1 != null && message_1.containsKey("content"))
+					msg_find = first_find.get("message");
+					if(msg_find != null && msg_find.containsKey("content"))
 					{
-						raw1 = message_1.get("content");
+						raw_find = msg_find.get("content");
 					}
 				}
 			}
 		}
 	}
-	catch (e_text1)
+	catch (e_extract_find)
 	{
-		raw1 = null;
+		raw_find = null;
 	}
-	if(raw1 == null || raw1.trim() == "")
+	// Parse the find result
+	found_primary_name = null;
+	found_primary_title = null;
+	found_primary_linkedin = null;
+	found_secondary_name = null;
+	found_secondary_title = null;
+	found_secondary_linkedin = null;
+	found_source = null;
+	if(raw_find != null && raw_find.trim() != "")
 	{
-		continue;
-	}
-	// Slice JSON from raw1
-	json1 = raw1;
-	try 
-	{
-		s1 = raw1.indexOf("{");
-		e1 = raw1.lastIndexOf("}");
-		if(s1 >= 0 && e1 > s1)
+		json_find = raw_find;
+		try 
 		{
-			json1 = raw1.subString(s1,e1 + 1);
+			sf = raw_find.indexOf("{");
+			ef = raw_find.lastIndexOf("}");
+			if(sf >= 0 && ef > sf)
+			{
+				json_find = raw_find.subString(sf,ef + 1);
+			}
+		}
+		catch (e_slice_find)
+		{
+			json_find = raw_find;
+		}
+		try 
+		{
+			find_map = json_find.toMap();
+			if(find_map.containsKey("primary"))
+			{
+				prim = find_map.get("primary");
+				if(prim != null)
+				{
+					pn = prim.get("name");
+					if(pn != null && (pn + "").trim() != "" && (pn + "").trim().toLowerCase() != "null")
+					{
+						found_primary_name = (pn + "").trim();
+					}
+					pt = prim.get("title");
+					if(pt != null && (pt + "").trim() != "" && (pt + "").trim().toLowerCase() != "null")
+					{
+						found_primary_title = (pt + "").trim();
+					}
+					pl = prim.get("linkedin");
+					if(pl != null && (pl + "").trim() != "" && (pl + "").trim().toLowerCase() != "null")
+					{
+						found_primary_linkedin = (pl + "").trim();
+					}
+				}
+			}
+			if(find_map.containsKey("secondary"))
+			{
+				sec = find_map.get("secondary");
+				if(sec != null)
+				{
+					sn = sec.get("name");
+					if(sn != null && (sn + "").trim() != "" && (sn + "").trim().toLowerCase() != "null")
+					{
+						found_secondary_name = (sn + "").trim();
+					}
+					st = sec.get("title");
+					if(st != null && (st + "").trim() != "" && (st + "").trim().toLowerCase() != "null")
+					{
+						found_secondary_title = (st + "").trim();
+					}
+					sl = sec.get("linkedin");
+					if(sl != null && (sl + "").trim() != "" && (sl + "").trim().toLowerCase() != "null")
+					{
+						found_secondary_linkedin = (sl + "").trim();
+					}
+				}
+			}
+			if(find_map.containsKey("source"))
+			{
+				src = find_map.get("source");
+				if(src != null && (src + "").trim() != "")
+				{
+					found_source = (src + "").trim();
+				}
+			}
+		}
+		catch (e_parse_find)
+		{
+			info "Failed to parse find JSON for " + company_name_str;
 		}
 	}
-	catch (e_slice1)
+	// -----------------------------------------
+	// STEP 2: If primary not found, try fallback search with broader terms
+	// -----------------------------------------
+	if(found_primary_name == null)
 	{
-		json1 = raw1;
-	}
-	// Parse contact data
-	contact_map = null;
-	try 
-	{
-		contact_map = json1.toMap();
-	}
-	catch (e_parse1)
-	{
-		info "Failed to parse contact JSON for " + company_name_str + ": " + json1;
-		continue;
-	}
-	// Get email pattern from API response
-	email_pattern = null;
-	if(contact_map.containsKey("email_pattern_hint"))
-	{
-		email_pattern = contact_map.get("email_pattern_hint");
+		prompt_fallback = "Search for ANY senior finance or executive person at " + company_name_str + " (" + website + ").\n\n" + "Look for: CEO, CFO, Finance Director, Managing Director, Founder, Head of Finance, Financial Controller.\n\n" + "Search LinkedIn, Companies House UK, company website, press releases.\n\n" + "Return ONLY JSON:\n" + "{\"primary\":{\"name\":\"\",\"title\":\"\",\"linkedin\":\"\"},\"secondary\":{\"name\":\"\",\"title\":\"\",\"linkedin\":\"\"},\"source\":\"\"}";
+		input_fb = List();
+		user_fb = Map();
+		user_fb.put("role","user");
+		user_fb.put("content",prompt_fallback);
+		input_fb.add(user_fb);
+		body_fb = Map();
+		body_fb.put("model",MODEL);
+		body_fb.put("messages",input_fb);
+		body_fb.put("temperature",0);
+		resp_fb = null;
+		raw_fb = null;
+		try 
+		{
+			resp_fb = invokeurl
+			[
+				url :"https://api.perplexity.ai/chat/completions"
+				type :POST
+				body:body_fb.toString()
+				headers:headers
+			];
+		}
+		catch (e_fb)
+		{
+			info "Fallback API call failed for " + company_name_str;
+		}
+		if(resp_fb != null)
+		{
+			try 
+			{
+				if(resp_fb.containsKey("choices"))
+				{
+					choices_fb = resp_fb.get("choices");
+					if(choices_fb != null && choices_fb.size() > 0)
+					{
+						first_fb = choices_fb.get(0);
+						if(first_fb != null && first_fb.containsKey("message"))
+						{
+							msg_fb = first_fb.get("message");
+							if(msg_fb != null && msg_fb.containsKey("content"))
+							{
+								raw_fb = msg_fb.get("content");
+							}
+						}
+					}
+				}
+			}
+			catch (e_extract_fb)
+			{
+				raw_fb = null;
+			}
+			if(raw_fb != null && raw_fb.trim() != "")
+			{
+				json_fb = raw_fb;
+				try 
+				{
+					sfb = raw_fb.indexOf("{");
+					efb = raw_fb.lastIndexOf("}");
+					if(sfb >= 0 && efb > sfb)
+					{
+						json_fb = raw_fb.subString(sfb,efb + 1);
+					}
+				}
+				catch (e_slice_fb)
+				{
+					json_fb = raw_fb;
+				}
+				try 
+				{
+					fb_map = json_fb.toMap();
+					if(fb_map.containsKey("primary"))
+					{
+						prim_fb = fb_map.get("primary");
+						if(prim_fb != null)
+						{
+							pn_fb = prim_fb.get("name");
+							if(pn_fb != null && (pn_fb + "").trim() != "" && (pn_fb + "").trim().toLowerCase() != "null")
+							{
+								found_primary_name = (pn_fb + "").trim();
+							}
+							pt_fb = prim_fb.get("title");
+							if(pt_fb != null && (pt_fb + "").trim() != "" && (pt_fb + "").trim().toLowerCase() != "null")
+							{
+								found_primary_title = (pt_fb + "").trim();
+							}
+							pl_fb = prim_fb.get("linkedin");
+							if(pl_fb != null && (pl_fb + "").trim() != "" && (pl_fb + "").trim().toLowerCase() != "null")
+							{
+								found_primary_linkedin = (pl_fb + "").trim();
+							}
+						}
+					}
+					if(found_secondary_name == null && fb_map.containsKey("secondary"))
+					{
+						sec_fb = fb_map.get("secondary");
+						if(sec_fb != null)
+						{
+							sn_fb = sec_fb.get("name");
+							if(sn_fb != null && (sn_fb + "").trim() != "" && (sn_fb + "").trim().toLowerCase() != "null")
+							{
+								found_secondary_name = (sn_fb + "").trim();
+							}
+							st_fb = sec_fb.get("title");
+							if(st_fb != null && (st_fb + "").trim() != "" && (st_fb + "").trim().toLowerCase() != "null")
+							{
+								found_secondary_title = (st_fb + "").trim();
+							}
+							sl_fb = sec_fb.get("linkedin");
+							if(sl_fb != null && (sl_fb + "").trim() != "" && (sl_fb + "").trim().toLowerCase() != "null")
+							{
+								found_secondary_linkedin = (sl_fb + "").trim();
+							}
+						}
+					}
+					if(found_source == null && fb_map.containsKey("source"))
+					{
+						src_fb = fb_map.get("source");
+						if(src_fb != null && (src_fb + "").trim() != "")
+						{
+							found_source = (src_fb + "").trim();
+						}
+					}
+				}
+				catch (e_parse_fb)
+				{
+					info "Failed to parse fallback JSON for " + company_name_str;
+				}
+			}
+		}
 	}
 	// -----------------------------------------
-	// HELPER FUNCTION: Generate email predictions from name + domain
-	// Uses indexOf/subString only (NO split, NO replace)
+	// Build contact objects with email prediction
 	// -----------------------------------------
-	// Process PRIMARY contact
 	primary_contact = Map();
-	primary_has_name = false;
-	if(contact_map.containsKey("primary_stakeholder"))
+	if(found_primary_name != null)
 	{
-		ps = contact_map.get("primary_stakeholder");
-		if(ps != null)
+		primary_contact.put("name",found_primary_name);
+		primary_contact.put("job_title",found_primary_title);
+		primary_contact.put("company",company_name_str);
+		primary_contact.put("linkedin_url",found_primary_linkedin);
+		primary_contact.put("company_website",website);
+		primary_contact.put("source_url",found_source);
+		primary_contact.put("phone",null);
+		primary_contact.put("location",null);
+		// Generate email predictions
+		full_name = found_primary_name.trim().toLowerCase();
+		first_name = "";
+		last_name = "";
+		space_pos = full_name.indexOf(" ");
+		if(space_pos > 0)
 		{
-			ps_name = ps.get("name");
-			ps_email = ps.get("email");
-			// Check if we have a valid name (not null, not empty, not "null" string)
-			if(ps_name != null && (ps_name + "").trim() != "" && (ps_name + "").trim().toLowerCase() != "null")
+			first_name = full_name.subString(0,space_pos).trim();
+			remaining = full_name.subString(space_pos + 1,full_name.length()).trim();
+			last_space = remaining.lastIndexOf(" ");
+			if(last_space > 0)
 			{
-				primary_has_name = true;
-				primary_contact.put("name",ps_name);
-				primary_contact.put("job_title",ps.get("job_title"));
-				primary_contact.put("company",ps.get("company"));
-				primary_contact.put("phone",ps.get("phone"));
-				primary_contact.put("location",ps.get("location"));
-				primary_contact.put("linkedin_url",ps.get("linkedin_url"));
-				primary_contact.put("company_website",ps.get("company_website"));
-				primary_contact.put("source_url",ps.get("source_url"));
-				primary_contact.put("notes",ps.get("notes"));
-				// Handle email - if found use it, otherwise predict
-				if(ps_email != null && (ps_email + "").trim() != "" && (ps_email + "").trim().toLowerCase() != "null")
-				{
-					primary_contact.put("email",ps_email);
-					primary_contact.put("email_status","verified");
-					primary_contact.put("email_confidence","high");
-				}
-				else
-				{
-					// Generate predicted emails from name
-					full_name = (ps_name + "").trim().toLowerCase();
-					first_name = "";
-					last_name = "";
-					// Extract first and last name using indexOf (NO split)
-					space_pos = full_name.indexOf(" ");
-					if(space_pos > 0)
-					{
-						first_name = full_name.subString(0,space_pos).trim();
-						// Get last name (last word after final space)
-						remaining = full_name.subString(space_pos + 1,full_name.length()).trim();
-						last_space = remaining.lastIndexOf(" ");
-						if(last_space > 0)
-						{
-							last_name = remaining.subString(last_space + 1,remaining.length()).trim();
-						}
-						else
-						{
-							last_name = remaining;
-						}
-					}
-					else
-					{
-						first_name = full_name;
-					}
-					// Generate email permutations
-					email_perms = List();
-					if(first_name != "" && last_name != "")
-					{
-						// firstname.lastname@domain (most common UK pattern)
-						email_perms.add(first_name + "." + last_name + "@" + domain);
-						// firstname@domain
-						email_perms.add(first_name + "@" + domain);
-						// firstnamelastname@domain
-						email_perms.add(first_name + last_name + "@" + domain);
-						// f.lastname@domain
-						first_initial = first_name.subString(0,1);
-						email_perms.add(first_initial + "." + last_name + "@" + domain);
-						// flastname@domain
-						email_perms.add(first_initial + last_name + "@" + domain);
-						// lastname.firstname@domain
-						email_perms.add(last_name + "." + first_name + "@" + domain);
-						// Set primary predicted email (firstname.lastname is most common)
-						primary_contact.put("email",first_name + "." + last_name + "@" + domain);
-						primary_contact.put("email_status","predicted");
-						primary_contact.put("email_confidence","medium");
-						primary_contact.put("email_permutations",email_perms);
-						primary_contact.put("email_prediction_method","Generated from name + domain pattern");
-					}
-					else if(first_name != "")
-					{
-						email_perms.add(first_name + "@" + domain);
-						primary_contact.put("email",first_name + "@" + domain);
-						primary_contact.put("email_status","predicted");
-						primary_contact.put("email_confidence","low");
-						primary_contact.put("email_permutations",email_perms);
-						primary_contact.put("email_prediction_method","Generated from first name only");
-					}
-					else
-					{
-						primary_contact.put("email",null);
-						primary_contact.put("email_status","unknown");
-						primary_contact.put("email_confidence","none");
-					}
-				}
+				last_name = remaining.subString(last_space + 1,remaining.length()).trim();
+			}
+			else
+			{
+				last_name = remaining;
 			}
 		}
+		else
+		{
+			first_name = full_name;
+		}
+		email_perms = List();
+		if(first_name != "" && last_name != "")
+		{
+			email_perms.add(first_name + "." + last_name + "@" + domain);
+			email_perms.add(first_name + "@" + domain);
+			email_perms.add(first_name + last_name + "@" + domain);
+			first_initial = first_name.subString(0,1);
+			email_perms.add(first_initial + "." + last_name + "@" + domain);
+			email_perms.add(first_initial + last_name + "@" + domain);
+			email_perms.add(last_name + "." + first_name + "@" + domain);
+			primary_contact.put("email",first_name + "." + last_name + "@" + domain);
+			primary_contact.put("email_status","predicted");
+			primary_contact.put("email_confidence","medium");
+			primary_contact.put("email_permutations",email_perms);
+		}
+		else if(first_name != "")
+		{
+			email_perms.add(first_name + "@" + domain);
+			primary_contact.put("email",first_name + "@" + domain);
+			primary_contact.put("email_status","predicted");
+			primary_contact.put("email_confidence","low");
+			primary_contact.put("email_permutations",email_perms);
+		}
+		else
+		{
+			primary_contact.put("email",null);
+			primary_contact.put("email_status","unknown");
+			primary_contact.put("email_confidence","none");
+		}
 	}
-	// If primary contact is empty, add placeholder with company info
-	if(primary_has_name == false)
+	else
 	{
 		primary_contact.put("name",null);
 		primary_contact.put("job_title",target_job_title);
 		primary_contact.put("company",company_name_str);
 		primary_contact.put("email",null);
 		primary_contact.put("email_status","not_found");
-		primary_contact.put("phone",null);
-		primary_contact.put("location",null);
+		primary_contact.put("email_confidence","none");
 		primary_contact.put("linkedin_url",null);
 		primary_contact.put("company_website",website);
 		primary_contact.put("source_url",null);
-		primary_contact.put("notes","No " + target_job_title + " found for this company");
+		primary_contact.put("phone",null);
+		primary_contact.put("location",null);
+		primary_contact.put("notes","No " + target_job_title + " or equivalent found");
 	}
-	// Process SECONDARY contact (same logic)
 	secondary_contact = Map();
-	secondary_has_name = false;
-	if(contact_map.containsKey("secondary_stakeholder"))
+	if(found_secondary_name != null)
 	{
-		ss = contact_map.get("secondary_stakeholder");
-		if(ss != null)
+		secondary_contact.put("name",found_secondary_name);
+		secondary_contact.put("job_title",found_secondary_title);
+		secondary_contact.put("company",company_name_str);
+		secondary_contact.put("linkedin_url",found_secondary_linkedin);
+		secondary_contact.put("company_website",website);
+		secondary_contact.put("source_url",found_source);
+		secondary_contact.put("phone",null);
+		secondary_contact.put("location",null);
+		// Generate email predictions for secondary
+		full_name_s = found_secondary_name.trim().toLowerCase();
+		first_name_s = "";
+		last_name_s = "";
+		space_pos_s = full_name_s.indexOf(" ");
+		if(space_pos_s > 0)
 		{
-			ss_name = ss.get("name");
-			ss_email = ss.get("email");
-			// Check if we have a valid name
-			if(ss_name != null && (ss_name + "").trim() != "" && (ss_name + "").trim().toLowerCase() != "null")
+			first_name_s = full_name_s.subString(0,space_pos_s).trim();
+			remaining_s = full_name_s.subString(space_pos_s + 1,full_name_s.length()).trim();
+			last_space_s = remaining_s.lastIndexOf(" ");
+			if(last_space_s > 0)
 			{
-				secondary_has_name = true;
-				secondary_contact.put("name",ss_name);
-				secondary_contact.put("job_title",ss.get("job_title"));
-				secondary_contact.put("company",ss.get("company"));
-				secondary_contact.put("phone",ss.get("phone"));
-				secondary_contact.put("location",ss.get("location"));
-				secondary_contact.put("linkedin_url",ss.get("linkedin_url"));
-				secondary_contact.put("company_website",ss.get("company_website"));
-				secondary_contact.put("source_url",ss.get("source_url"));
-				secondary_contact.put("notes",ss.get("notes"));
-				// Handle email - if found use it, otherwise predict
-				if(ss_email != null && (ss_email + "").trim() != "" && (ss_email + "").trim().toLowerCase() != "null")
-				{
-					secondary_contact.put("email",ss_email);
-					secondary_contact.put("email_status","verified");
-					secondary_contact.put("email_confidence","high");
-				}
-				else
-				{
-					// Generate predicted emails from name
-					full_name_s = (ss_name + "").trim().toLowerCase();
-					first_name_s = "";
-					last_name_s = "";
-					space_pos_s = full_name_s.indexOf(" ");
-					if(space_pos_s > 0)
-					{
-						first_name_s = full_name_s.subString(0,space_pos_s).trim();
-						remaining_s = full_name_s.subString(space_pos_s + 1,full_name_s.length()).trim();
-						last_space_s = remaining_s.lastIndexOf(" ");
-						if(last_space_s > 0)
-						{
-							last_name_s = remaining_s.subString(last_space_s + 1,remaining_s.length()).trim();
-						}
-						else
-						{
-							last_name_s = remaining_s;
-						}
-					}
-					else
-					{
-						first_name_s = full_name_s;
-					}
-					email_perms_s = List();
-					if(first_name_s != "" && last_name_s != "")
-					{
-						email_perms_s.add(first_name_s + "." + last_name_s + "@" + domain);
-						email_perms_s.add(first_name_s + "@" + domain);
-						email_perms_s.add(first_name_s + last_name_s + "@" + domain);
-						first_initial_s = first_name_s.subString(0,1);
-						email_perms_s.add(first_initial_s + "." + last_name_s + "@" + domain);
-						email_perms_s.add(first_initial_s + last_name_s + "@" + domain);
-						secondary_contact.put("email",first_name_s + "." + last_name_s + "@" + domain);
-						secondary_contact.put("email_status","predicted");
-						secondary_contact.put("email_confidence","medium");
-						secondary_contact.put("email_permutations",email_perms_s);
-						secondary_contact.put("email_prediction_method","Generated from name + domain pattern");
-					}
-					else if(first_name_s != "")
-					{
-						email_perms_s.add(first_name_s + "@" + domain);
-						secondary_contact.put("email",first_name_s + "@" + domain);
-						secondary_contact.put("email_status","predicted");
-						secondary_contact.put("email_confidence","low");
-						secondary_contact.put("email_permutations",email_perms_s);
-					}
-					else
-					{
-						secondary_contact.put("email",null);
-						secondary_contact.put("email_status","unknown");
-						secondary_contact.put("email_confidence","none");
-					}
-				}
+				last_name_s = remaining_s.subString(last_space_s + 1,remaining_s.length()).trim();
+			}
+			else
+			{
+				last_name_s = remaining_s;
 			}
 		}
+		else
+		{
+			first_name_s = full_name_s;
+		}
+		email_perms_s = List();
+		if(first_name_s != "" && last_name_s != "")
+		{
+			email_perms_s.add(first_name_s + "." + last_name_s + "@" + domain);
+			email_perms_s.add(first_name_s + "@" + domain);
+			email_perms_s.add(first_name_s + last_name_s + "@" + domain);
+			first_initial_s = first_name_s.subString(0,1);
+			email_perms_s.add(first_initial_s + "." + last_name_s + "@" + domain);
+			email_perms_s.add(first_initial_s + last_name_s + "@" + domain);
+			secondary_contact.put("email",first_name_s + "." + last_name_s + "@" + domain);
+			secondary_contact.put("email_status","predicted");
+			secondary_contact.put("email_confidence","medium");
+			secondary_contact.put("email_permutations",email_perms_s);
+		}
+		else if(first_name_s != "")
+		{
+			email_perms_s.add(first_name_s + "@" + domain);
+			secondary_contact.put("email",first_name_s + "@" + domain);
+			secondary_contact.put("email_status","predicted");
+			secondary_contact.put("email_confidence","low");
+			secondary_contact.put("email_permutations",email_perms_s);
+		}
+		else
+		{
+			secondary_contact.put("email",null);
+			secondary_contact.put("email_status","unknown");
+			secondary_contact.put("email_confidence","none");
+		}
 	}
-	// If secondary contact is empty, add placeholder
-	if(secondary_has_name == false)
+	else
 	{
 		secondary_contact.put("name",null);
 		secondary_contact.put("job_title",null);
 		secondary_contact.put("company",company_name_str);
 		secondary_contact.put("email",null);
 		secondary_contact.put("email_status","not_found");
-		secondary_contact.put("phone",null);
-		secondary_contact.put("location",null);
+		secondary_contact.put("email_confidence","none");
 		secondary_contact.put("linkedin_url",null);
 		secondary_contact.put("company_website",website);
 		secondary_contact.put("source_url",null);
+		secondary_contact.put("phone",null);
+		secondary_contact.put("location",null);
 		secondary_contact.put("notes","No secondary contact found");
 	}
-	// Build final contact map
+	// Build final result
 	contacts_result = Map();
 	contacts_result.put("primary_contact",primary_contact);
 	contacts_result.put("secondary_contact",secondary_contact);
-	contacts_result.put("email_pattern",email_pattern);
-	if(contact_map.containsKey("email_examples"))
-	{
-		contacts_result.put("email_examples",contact_map.get("email_examples"));
-	}
-	if(contact_map.containsKey("email_pattern_source"))
-	{
-		contacts_result.put("email_pattern_source",contact_map.get("email_pattern_source"));
-	}
 	company_result = Map();
 	company_result.put("company_name",company_name);
 	company_result.put("company_website",website);
