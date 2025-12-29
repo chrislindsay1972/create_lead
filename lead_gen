@@ -1,0 +1,678 @@
+void automation.lead_gen(String sector,String company_size,String jobTitle)
+{
+out = Map();
+// End-to-end: discover UK companies for a sector + size (up to 20, paginated),
+// then enrich each company with TWO contacts (primary + secondary) and email pattern info.
+//
+// Constraints respected:
+// - NO while
+// - NO ternary
+// - NO replace()
+// - NO split()   <-- IMPORTANT (uses indexOf/subString only)
+//
+// Usage example:
+// result = contact_ai1("finance","100","Accountant");
+// -----------------------------------------
+// OpenAI config
+// -----------------------------------------
+OPENAI_API_KEY = zoho.crm.getOrgVariable("OPENAI_API_KEY");
+if(OPENAI_API_KEY == null || OPENAI_API_KEY.trim() == "")
+{
+	out.put("status","ERROR");
+	out.put("message","OPENAI_API_KEY not configured.");
+	info out;
+}
+MODEL = zoho.crm.getOrgVariable("OPENAI_RESPONSES_MODEL");
+if(MODEL == null || MODEL.trim() == "")
+{
+	MODEL = "gpt-4o-mini";
+}
+headers = Map();
+headers.put("Authorization","Bearer " + OPENAI_API_KEY);
+headers.put("Content-Type","application/json");
+// -----------------------------------------
+// Inputs / defaults
+// -----------------------------------------
+requested_sector = "";
+if(sector != null)
+{
+	requested_sector = sector.trim().toLowerCase();
+}
+requested_size = "";
+if(company_size != null)
+{
+	requested_size = company_size.trim();
+}
+target_job_title = "";
+if(jobTitle != null)
+{
+	target_job_title = jobTitle.trim();
+}
+// -----------------------------------------
+// Helper: parse company_size into a normalised filter (NO split)
+// Supports:
+// - "100" (single number => match ranges containing it)
+// - "51-200" (range)
+// - "1000+" (min)
+// -----------------------------------------
+size_filter_type = "unknown";
+// "single" | "range" | "min" | "unknown"
+size_single = 0;
+size_lower = 0;
+size_upper = 0;
+size_min = 0;
+if(requested_size != "")
+{
+	if(requested_size.contains("-"))
+	{
+		dashPos = requested_size.indexOf("-");
+		if(dashPos > 0 && dashPos < requested_size.length() - 1)
+		{
+			try 
+			{
+				leftPart = requested_size.subString(0,dashPos).trim();
+				rightPart = requested_size.subString(dashPos + 1,requested_size.length()).trim();
+				size_lower = leftPart.toLong();
+				size_upper = rightPart.toLong();
+				size_filter_type = "range";
+			}
+			catch (e_size_range)
+			{
+				size_filter_type = "unknown";
+			}
+		}
+	}
+	else if(requested_size.endsWith("+"))
+	{
+		try 
+		{
+			min_str = requested_size.subString(0,requested_size.length() - 1).trim();
+			size_min = min_str.toLong();
+			size_filter_type = "min";
+		}
+		catch (e_size_min)
+		{
+			size_filter_type = "unknown";
+		}
+	}
+	else
+	{
+		try 
+		{
+			size_single = requested_size.toLong();
+			size_filter_type = "single";
+		}
+		catch (e_size_single)
+		{
+			size_filter_type = "unknown";
+		}
+	}
+}
+// -----------------------------------------
+// Pagination controls (NO while)
+// Attempt 3 pages * 10 = 30 candidates, then trim to 20.
+// -----------------------------------------
+max_companies = 20;
+page_size = 10;
+pages_seed = List();
+pages_seed.add(1);
+pages_seed.add(2);
+pages_seed.add(3);
+next_page_token = null;
+companies_found = List();
+// -----------------------------------------
+// CALL A: Company discovery pages (UK)
+// -----------------------------------------
+for each  page in pages_seed
+{
+	if(companies_found.size() >= max_companies)
+	{
+		break;
+	}
+	if(page != 1)
+	{
+		if(next_page_token == null || (next_page_token + "").trim() == "")
+		{
+			break;
+		}
+	}
+	token_str = "null";
+	if(next_page_token != null && (next_page_token + "").trim() != "")
+	{
+		token_str = next_page_token;
+	}
+	promptA = "RUNTIME_CONTEXT\n" + "requested_sector: " + requested_sector + "\n" + "requested_company_size: " + requested_size + "\n" + "country: UK\n" + "page: " + page + "\n" + "page_size: " + page_size + "\n" + "next_page_token: " + token_str + "\n" + "END_RUNTIME_CONTEXT\n\n" + "You are a strict UK company discovery engine.\n" + "Use web search.\n" + "Return ONLY a single JSON object. No prose.\n" + "The first character must be '{' and the last must be '}'.\n\n" + "Task:\n" + "1) Find UK companies that plausibly operate in the requested_sector.\n" + "2) For each company, provide a website you are confident belongs to the company.\n" + "3) Provide employee_size as a string like '1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'. If unknown, null.\n" + "4) Return up to page_size companies per page.\n" + "5) If more results exist, return a next_page_token (opaque string). If no more, null.\n\n" + "Output schema:\n" + "{\n" + "  \"companies\": [\n" + "    {\"name\": null, \"website\": null, \"employee_size\": null, \"location\": null, \"sector\": null, \"source_url\": null}\n" + "  ],\n" + "  \"next_page_token\": null\n" + "}\n";
+	tools_list_A = List();
+	web_tool_A = Map();
+	web_tool_A.put("type","web_search");
+	tools_list_A.add(web_tool_A);
+	input_items_A = List();
+	user_item_A = Map();
+	user_item_A.put("role","user");
+	user_item_A.put("content",promptA);
+	input_items_A.add(user_item_A);
+	body_A = Map();
+	body_A.put("model",MODEL);
+	body_A.put("input",input_items_A);
+	body_A.put("temperature",0);
+	body_A.put("tools",tools_list_A);
+	respA = null;
+	rawA = null;
+	try 
+	{
+		respA = invokeurl
+		[
+			url :"https://api.openai.com/v1/responses"
+			type :POST
+			body:body_A.toString()
+			headers:headers
+		];
+	}
+	catch (e_callA)
+	{
+		continue;
+	}
+	// Extract assistant text
+	try 
+	{
+		if(respA != null && respA.containsKey("output_text"))
+		{
+			rawA = respA.get("output_text");
+		}
+		if(rawA == null || rawA.trim() == "")
+		{
+			output_list_A = respA.get("output");
+			if(output_list_A != null)
+			{
+				for each  out_item_A in output_list_A
+				{
+					if(out_item_A != null && out_item_A.containsKey("content"))
+					{
+						content_list_A = out_item_A.get("content");
+						if(content_list_A != null)
+						{
+							for each  cA in content_list_A
+							{
+								if(cA != null && cA.containsKey("text"))
+								{
+									rawA = cA.get("text");
+									break;
+								}
+							}
+						}
+					}
+					if(rawA != null && rawA.trim() != "")
+					{
+						break;
+					}
+				}
+			}
+		}
+	}
+	catch (eA_extract)
+	{
+		rawA = null;
+	}
+	if(rawA == null || rawA.trim() == "")
+	{
+		continue;
+	}
+	// Slice JSON
+	jsonA = rawA;
+	try 
+	{
+		sA = rawA.indexOf("{");
+		eA = rawA.lastIndexOf("}");
+		if(sA >= 0 && eA > sA)
+		{
+			jsonA = rawA.subString(sA,eA + 1);
+		}
+	}
+	catch (eA_slice)
+	{
+		jsonA = rawA;
+	}
+	disc_map = null;
+	try 
+	{
+		disc_map = jsonA.toMap();
+	}
+	catch (eA_parse)
+	{
+		continue;
+	}
+	page_companies = disc_map.get("companies");
+	if(page_companies == null)
+	{
+		page_companies = List();
+	}
+	next_page_token = disc_map.get("next_page_token");
+	// Add companies to companies_found (dedupe by website)
+	for each  c in page_companies
+	{
+		if(c == null)
+		{
+			continue;
+		}
+		if(companies_found.size() >= max_companies)
+		{
+			break;
+		}
+		w = c.get("website");
+		if(w == null || (w + "").trim() == "")
+		{
+			continue;
+		}
+		wlc = (w + "").trim().toLowerCase();
+		if(wlc.startsWith("https://"))
+		{
+			wlc = wlc.replaceFirst("https://","");
+		}
+		else if(wlc.startsWith("http://"))
+		{
+			wlc = wlc.replaceFirst("http://","");
+		}
+		if(wlc.endsWith("/"))
+		{
+			wlc = wlc.subString(0,wlc.length() - 1);
+		}
+		already = false;
+		for each  existing in companies_found
+		{
+			if(existing != null && existing.get("website") != null)
+			{
+				exw = (existing.get("website") + "").trim().toLowerCase();
+				if(exw.startsWith("https://"))
+				{
+					exw = exw.replaceFirst("https://","");
+				}
+				else if(exw.startsWith("http://"))
+				{
+					exw = exw.replaceFirst("http://","");
+				}
+				if(exw.endsWith("/"))
+				{
+					exw = exw.subString(0,exw.length() - 1);
+				}
+				if(exw == wlc)
+				{
+					already = true;
+					break;
+				}
+			}
+		}
+		if(already == false)
+		{
+			companies_found.add(c);
+		}
+	}
+}
+// -----------------------------------------
+// Filter companies by size + sector (best-effort)
+// -----------------------------------------
+matching_companies = List();
+for each  comp in companies_found
+{
+	if(comp == null)
+	{
+		continue;
+	}
+	comp_sector = "";
+	if(comp.get("sector") != null)
+	{
+		comp_sector = (comp.get("sector") + "").trim().toLowerCase();
+	}
+	comp_size = "";
+	if(comp.get("employee_size") != null)
+	{
+		comp_size = (comp.get("employee_size") + "").trim();
+	}
+	// sector match
+	sector_match = false;
+	if(requested_sector == "")
+	{
+		sector_match = true;
+	}
+	else
+	{
+		if(comp_sector != "" && (comp_sector.indexOf(requested_sector) >= 0 || requested_sector.indexOf(comp_sector) >= 0))
+		{
+			sector_match = true;
+		}
+		if(sector_match == false && requested_sector == "finance")
+		{
+			if(comp_sector == "fintech" || comp_sector == "accounting" || comp_sector == "professional services")
+			{
+				sector_match = true;
+			}
+		}
+	}
+	// size match (NO split)
+	size_match = false;
+	if(requested_size == "" || size_filter_type == "unknown")
+	{
+		size_match = true;
+	}
+	else
+	{
+		comp_low = 0;
+		comp_high = 0;
+		if(comp_size != "")
+		{
+			if(comp_size.contains("-"))
+			{
+				d2 = comp_size.indexOf("-");
+				if(d2 > 0 && d2 < comp_size.length() - 1)
+				{
+					try 
+					{
+						cl = comp_size.subString(0,d2).trim().toLong();
+						ch = comp_size.subString(d2 + 1,comp_size.length()).trim().toLong();
+						comp_low = cl;
+						comp_high = ch;
+					}
+					catch (e_cs1)
+					{
+						comp_low = 0;
+						comp_high = 0;
+					}
+				}
+			}
+			else if(comp_size.endsWith("+"))
+			{
+				try 
+				{
+					cmin = comp_size.subString(0,comp_size.length() - 1).trim().toLong();
+					comp_low = cmin;
+					comp_high = 999999;
+				}
+				catch (e_cs2)
+				{
+					comp_low = 0;
+					comp_high = 999999;
+				}
+			}
+		}
+		if(size_filter_type == "single")
+		{
+			if(comp_high > 0 && size_single >= comp_low && size_single <= comp_high)
+			{
+				size_match = true;
+			}
+		}
+		else if(size_filter_type == "range")
+		{
+			if(comp_high > 0)
+			{
+				if(!(comp_high < size_lower || comp_low > size_upper))
+				{
+					size_match = true;
+				}
+			}
+		}
+		else if(size_filter_type == "min")
+		{
+			if(comp_high > 0 && comp_high >= size_min)
+			{
+				size_match = true;
+			}
+		}
+	}
+	if(sector_match && size_match)
+	{
+		matching_companies.add(comp);
+	}
+	if(matching_companies.size() >= max_companies)
+	{
+		break;
+	}
+}
+// -----------------------------------------
+// Enrich each company with two contacts
+// -----------------------------------------
+results = List();
+for each  comp2 in matching_companies
+{
+	website = null;
+	if(comp2.get("website") != null)
+	{
+		website = (comp2.get("website") + "").trim();
+	}
+	if(website == null || website == "")
+	{
+		continue;
+	}
+	company_name = null;
+	if(comp2.get("name") != null)
+	{
+		company_name = (comp2.get("name") + "").trim();
+	}
+	// Derive domain
+	domain_lc = website.trim().toLowerCase();
+	if(domain_lc.startsWith("https://"))
+	{
+		domain_lc = domain_lc.replaceFirst("https://","");
+	}
+	else if(domain_lc.startsWith("http://"))
+	{
+		domain_lc = domain_lc.replaceFirst("http://","");
+	}
+	slash_index = domain_lc.indexOf("/");
+	if(slash_index > 0)
+	{
+		domain_lc = domain_lc.subString(0,slash_index);
+	}
+	colon_index = domain_lc.indexOf(":");
+	if(colon_index > 0)
+	{
+		domain_lc = domain_lc.subString(0,colon_index);
+	}
+	if(domain_lc.startsWith("www."))
+	{
+		domain_lc = domain_lc.subString(4,domain_lc.length());
+	}
+	domain = domain_lc;
+	// -------- CALL 1 (web_search)
+	company_name_str = "null";
+	if(company_name != null && company_name.trim() != "")
+	{
+		company_name_str = company_name;
+	}
+	prompt1 = "RUNTIME_CONTEXT\n" + "target_company_website: " + website + "\n" + "advertised_job_title: " + target_job_title + "\n" + "company_domain: " + domain + "\n" + "company_name: " + company_name_str + "\n" + "END_RUNTIME_CONTEXT\n\n" + "Return ONLY a single JSON object. No prose. No markdown.\n" + "Populate email/phone/linkedin_url only if publicly visible AND then include source_url.\n\n" + "Output schema:\n" + "{\n" + "  \"primary_stakeholder\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null},\n" + "  \"secondary_stakeholder\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null},\n" + "  \"email_pattern_hint\": null,\n" + "  \"email_examples\": null\n" + "}\n";
+	tools_list_1 = List();
+	web_tool_1 = Map();
+	web_tool_1.put("type","web_search");
+	tools_list_1.add(web_tool_1);
+	input_items_1 = List();
+	user_item_1 = Map();
+	user_item_1.put("role","user");
+	user_item_1.put("content",prompt1);
+	input_items_1.add(user_item_1);
+	body_1 = Map();
+	body_1.put("model",MODEL);
+	body_1.put("input",input_items_1);
+	body_1.put("temperature",0);
+	body_1.put("tools",tools_list_1);
+	resp1 = null;
+	raw1 = null;
+	try 
+	{
+		resp1 = invokeurl
+		[
+			url :"https://api.openai.com/v1/responses"
+			type :POST
+			body:body_1.toString()
+			headers:headers
+		];
+	}
+	catch (e_call1)
+	{
+		continue;
+	}
+	// Extract assistant text
+	try 
+	{
+		if(resp1 != null && resp1.containsKey("output_text"))
+		{
+			raw1 = resp1.get("output_text");
+		}
+		if(raw1 == null || raw1.trim() == "")
+		{
+			output_list_1 = resp1.get("output");
+			if(output_list_1 != null)
+			{
+				for each  out_item_1 in output_list_1
+				{
+					if(out_item_1 != null && out_item_1.containsKey("content"))
+					{
+						content_list_1 = out_item_1.get("content");
+						if(content_list_1 != null)
+						{
+							for each  c1 in content_list_1
+							{
+								if(c1 != null && c1.containsKey("text"))
+								{
+									raw1 = c1.get("text");
+									break;
+								}
+							}
+						}
+					}
+					if(raw1 != null && raw1.trim() != "")
+					{
+						break;
+					}
+				}
+			}
+		}
+	}
+	catch (e_text1)
+	{
+		raw1 = null;
+	}
+	if(raw1 == null || raw1.trim() == "")
+	{
+		continue;
+	}
+	// Slice JSON from raw1
+	json1 = raw1;
+	try 
+	{
+		s1 = raw1.indexOf("{");
+		e1 = raw1.lastIndexOf("}");
+		if(s1 >= 0 && e1 > s1)
+		{
+			json1 = raw1.subString(s1,e1 + 1);
+		}
+	}
+	catch (e_slice1)
+	{
+		json1 = raw1;
+	}
+	// -------- CALL 2 (JSON mode)
+	prompt2 = "You are a strict JSON normalisation and enrichment engine.\n" + "Return ONLY a single JSON object.\n\n" + "Inputs:\n" + "- target_company_website: " + website + "\n" + "- advertised_job_title: " + target_job_title + "\n" + "- company_domain: " + domain + "\n" + "- stakeholders_and_pattern: " + json1 + "\n\n" + "Output schema:\n" + "{\n" + "  \"primary_contact\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"email_predicted\": null, \"email_predicted_confidence\": null, \"email_predicted_method\": null, \"email_permutations\": null, \"email_verification_guidance\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null},\n" + "  \"secondary_contact\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"email_predicted\": null, \"email_predicted_confidence\": null, \"email_predicted_method\": null, \"email_permutations\": null, \"email_verification_guidance\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null}\n" + "}\n";
+	input_items_2 = List();
+	user_item_2 = Map();
+	user_item_2.put("role","user");
+	user_item_2.put("content",prompt2);
+	input_items_2.add(user_item_2);
+	body_2 = Map();
+	body_2.put("model",MODEL);
+	body_2.put("input",input_items_2);
+	body_2.put("temperature",0);
+	text_map = Map();
+	format_map = Map();
+	format_map.put("type","json_object");
+	text_map.put("format",format_map);
+	body_2.put("text",text_map);
+	resp2 = null;
+	raw2 = null;
+	try 
+	{
+		resp2 = invokeurl
+		[
+			url :"https://api.openai.com/v1/responses"
+			type :POST
+			body:body_2.toString()
+			headers:headers
+		];
+	}
+	catch (e_call2)
+	{
+		continue;
+	}
+	// Extract assistant text from call 2
+	try 
+	{
+		if(resp2 != null && resp2.containsKey("output_text"))
+		{
+			raw2 = resp2.get("output_text");
+		}
+		if(raw2 == null || raw2.trim() == "")
+		{
+			output_list_2 = resp2.get("output");
+			if(output_list_2 != null)
+			{
+				for each  out_item_2 in output_list_2
+				{
+					if(out_item_2 != null && out_item_2.containsKey("content"))
+					{
+						content_list_2 = out_item_2.get("content");
+						if(content_list_2 != null)
+						{
+							for each  c2 in content_list_2
+							{
+								if(c2 != null && c2.containsKey("text"))
+								{
+									raw2 = c2.get("text");
+									break;
+								}
+							}
+						}
+					}
+					if(raw2 != null && raw2.trim() != "")
+					{
+						break;
+					}
+				}
+			}
+		}
+	}
+	catch (e_text2)
+	{
+		raw2 = null;
+	}
+	if(raw2 == null || raw2.trim() == "")
+	{
+		continue;
+	}
+	contact_map = null;
+	try 
+	{
+		contact_map = raw2.toMap();
+	}
+	catch (e_parse2)
+	{
+		continue;
+	}
+	company_result = Map();
+	company_result.put("company_name",company_name);
+	company_result.put("company_website",website);
+	company_result.put("company_domain",domain);
+	company_result.put("discovered_sector",comp2.get("sector"));
+	company_result.put("employee_size",comp2.get("employee_size"));
+	company_result.put("contacts",contact_map);
+	results.add(company_result);
+	if(results.size() >= max_companies)
+	{
+		break;
+	}
+}
+out.put("status","OK");
+out.put("sector",requested_sector);
+out.put("company_size",requested_size);
+out.put("job_title",target_job_title);
+out.put("result_count",results.size());
+out.put("results",results);
+info out;
+}
