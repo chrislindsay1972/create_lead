@@ -11,31 +11,28 @@ out = Map();
 // - NO split()   <-- IMPORTANT (uses indexOf/subString only)
 //
 // Usage example:
-// result = contact_ai1("finance","100","Accountant");
+// result = automation.lead_gen("finance","100","CFO");
 // -----------------------------------------
-// OpenAI config
+// Perplexity API config
 // -----------------------------------------
-OPENAI_API_KEY = zoho.crm.getOrgVariable("OPENAI_API_KEY");
+PERPLEXITY_API_KEY = zoho.crm.getOrgVariable("PERPLEXITY_API_KEY");
 api_key_valid = false;
-if(OPENAI_API_KEY != null && OPENAI_API_KEY.trim() != "")
+if(PERPLEXITY_API_KEY != null && PERPLEXITY_API_KEY.trim() != "")
 {
 	api_key_valid = true;
 }
 if(api_key_valid == false)
 {
 	out.put("status","ERROR");
-	out.put("message","OPENAI_API_KEY not configured.");
+	out.put("message","PERPLEXITY_API_KEY not configured. Please set the org variable.");
 	info out;
 }
 if(api_key_valid == true)
 {
-MODEL = zoho.crm.getOrgVariable("OPENAI_RESPONSES_MODEL");
-if(MODEL == null || MODEL.trim() == "")
-{
-	MODEL = "gpt-4o-mini";
-}
+// Use sonar model for web search capability
+MODEL = "sonar";
 headers = Map();
-headers.put("Authorization","Bearer " + OPENAI_API_KEY);
+headers.put("Authorization","Bearer " + PERPLEXITY_API_KEY);
 headers.put("Content-Type","application/json");
 // -----------------------------------------
 // Inputs / defaults
@@ -128,7 +125,7 @@ pages_seed.add(3);
 next_page_token = null;
 companies_found = List();
 // -----------------------------------------
-// CALL A: Company discovery pages (UK)
+// CALL A: Company discovery pages (UK) - Using Perplexity with web search
 // -----------------------------------------
 for each  page in pages_seed
 {
@@ -148,7 +145,7 @@ for each  page in pages_seed
 	{
 		token_str = next_page_token;
 	}
-	promptA = "RUNTIME_CONTEXT\n" + "requested_sector: " + requested_sector + "\n" + "requested_company_size: " + requested_size + "\n" + "country: UK\n" + "page: " + page + "\n" + "page_size: " + page_size + "\n" + "next_page_token: " + token_str + "\n" + "END_RUNTIME_CONTEXT\n\n" + "You are a strict UK company discovery engine.\n" + "Return ONLY a single JSON object. No prose.\n" + "The first character must be '{' and the last must be '}'.\n\n" + "Task:\n" + "1) Find UK companies that plausibly operate in the requested_sector.\n" + "2) For each company, provide a website you are confident belongs to the company.\n" + "3) Provide employee_size as a string like '1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'. If unknown, null.\n" + "4) Return up to page_size companies per page.\n" + "5) If more results exist, return a next_page_token (opaque string). If no more, null.\n\n" + "Output schema:\n" + "{\n" + "  \"companies\": [\n" + "    {\"name\": null, \"website\": null, \"employee_size\": null, \"location\": null, \"sector\": null, \"source_url\": null}\n" + "  ],\n" + "  \"next_page_token\": null\n" + "}\n";
+	promptA = "Search the web and find UK companies in the " + requested_sector + " sector with approximately " + requested_size + " employees.\n\n" + "Page: " + page + " of results (return " + page_size + " companies per page).\n\n" + "For each company, search for and provide:\n" + "1. Company name\n" + "2. Official website URL\n" + "3. Employee size range (e.g., '1-10', '11-50', '51-200', '201-500', '501-1000', '1000+')\n" + "4. Location (city, UK)\n" + "5. Specific sector/industry\n\n" + "Return ONLY a valid JSON object with no markdown formatting, no code blocks, no explanation.\n" + "The response must start with { and end with }\n\n" + "JSON schema:\n" + "{\n" + "  \"companies\": [\n" + "    {\"name\": \"Company Name\", \"website\": \"https://example.com\", \"employee_size\": \"51-200\", \"location\": \"London, UK\", \"sector\": \"Finance\", \"source_url\": \"https://source.com\"}\n" + "  ],\n" + "  \"next_page_token\": \"page2\" \n" + "}\n\n" + "Set next_page_token to null if no more results exist.";
 	input_items_A = List();
 	user_item_A = Map();
 	user_item_A.put("role","user");
@@ -164,7 +161,7 @@ for each  page in pages_seed
 	{
 		respA = invokeurl
 		[
-			url :"https://api.openai.com/v1/chat/completions"
+			url :"https://api.perplexity.ai/chat/completions"
 			type :POST
 			body:body_A.toString()
 			headers:headers
@@ -172,9 +169,10 @@ for each  page in pages_seed
 	}
 	catch (e_callA)
 	{
+		info "Discovery API call failed: " + e_callA;
 		continue;
 	}
-	// Extract assistant text from Chat Completions response
+	// Extract assistant text from Perplexity response (OpenAI-compatible format)
 	try 
 	{
 		if(respA != null && respA.containsKey("choices"))
@@ -202,7 +200,7 @@ for each  page in pages_seed
 	{
 		continue;
 	}
-	// Slice JSON
+	// Slice JSON from response
 	jsonA = rawA;
 	try 
 	{
@@ -224,6 +222,7 @@ for each  page in pages_seed
 	}
 	catch (eA_parse)
 	{
+		info "Failed to parse discovery JSON: " + jsonA;
 		continue;
 	}
 	page_companies = disc_map.get("companies");
@@ -415,7 +414,7 @@ for each  comp in companies_found
 	}
 }
 // -----------------------------------------
-// Enrich each company with two contacts
+// Enrich each company with two contacts using Perplexity web search
 // -----------------------------------------
 results = List();
 for each  comp2 in matching_companies
@@ -459,13 +458,13 @@ for each  comp2 in matching_companies
 		domain_lc = domain_lc.subString(4,domain_lc.length());
 	}
 	domain = domain_lc;
-	// -------- CALL 1: Contact discovery
-	company_name_str = "null";
+	// -------- CALL 1: Contact discovery with Perplexity web search
+	company_name_str = "Unknown Company";
 	if(company_name != null && company_name.trim() != "")
 	{
 		company_name_str = company_name;
 	}
-	prompt1 = "RUNTIME_CONTEXT\n" + "target_company_website: " + website + "\n" + "advertised_job_title: " + target_job_title + "\n" + "company_domain: " + domain + "\n" + "company_name: " + company_name_str + "\n" + "END_RUNTIME_CONTEXT\n\n" + "Return ONLY a single JSON object. No prose. No markdown.\n" + "Populate email/phone/linkedin_url only if publicly visible AND then include source_url.\n\n" + "Output schema:\n" + "{\n" + "  \"primary_stakeholder\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null},\n" + "  \"secondary_stakeholder\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null},\n" + "  \"email_pattern_hint\": null,\n" + "  \"email_examples\": null\n" + "}\n";
+	prompt1 = "Search the web to find contact information for people at " + company_name_str + " (website: " + website + ").\n\n" + "I need to find:\n" + "1. PRIMARY CONTACT: Someone with the job title '" + target_job_title + "' or similar senior role\n" + "2. SECONDARY CONTACT: Another senior executive or decision maker\n\n" + "For each person, search LinkedIn, the company website, news articles, and business directories to find:\n" + "- Full name\n" + "- Job title\n" + "- Email address (look for patterns like firstname@" + domain + " or check company contact pages)\n" + "- Phone number\n" + "- LinkedIn profile URL\n" + "- Location\n\n" + "Also determine the company's email pattern (e.g., firstname@domain, firstname.lastname@domain, f.lastname@domain).\n\n" + "Return ONLY a valid JSON object with no markdown, no code blocks, no explanation.\n" + "The response must start with { and end with }\n\n" + "JSON schema:\n" + "{\n" + "  \"primary_stakeholder\": {\"name\": \"John Smith\", \"job_title\": \"CFO\", \"company\": \"" + company_name_str + "\", \"email\": \"john.smith@" + domain + "\", \"phone\": \"+44 123 456 7890\", \"location\": \"London, UK\", \"linkedin_url\": \"https://linkedin.com/in/johnsmith\", \"company_website\": \"" + website + "\", \"source_url\": \"https://where-you-found-this.com\", \"notes\": \"Found on company about page\"},\n" + "  \"secondary_stakeholder\": {\"name\": \"Jane Doe\", \"job_title\": \"CEO\", \"company\": \"" + company_name_str + "\", \"email\": \"jane.doe@" + domain + "\", \"phone\": null, \"location\": \"London, UK\", \"linkedin_url\": \"https://linkedin.com/in/janedoe\", \"company_website\": \"" + website + "\", \"source_url\": \"https://linkedin.com\", \"notes\": \"Found on LinkedIn\"},\n" + "  \"email_pattern_hint\": \"firstname.lastname@" + domain + "\",\n" + "  \"email_examples\": [\"john.smith@" + domain + "\", \"jane.doe@" + domain + "\"]\n" + "}\n\n" + "Use null for any field where information cannot be found. Always include source_url for verified information.";
 	input_items_1 = List();
 	user_item_1 = Map();
 	user_item_1.put("role","user");
@@ -481,7 +480,7 @@ for each  comp2 in matching_companies
 	{
 		resp1 = invokeurl
 		[
-			url :"https://api.openai.com/v1/chat/completions"
+			url :"https://api.perplexity.ai/chat/completions"
 			type :POST
 			body:body_1.toString()
 			headers:headers
@@ -489,9 +488,10 @@ for each  comp2 in matching_companies
 	}
 	catch (e_call1)
 	{
+		info "Contact discovery API call failed for " + company_name_str + ": " + e_call1;
 		continue;
 	}
-	// Extract assistant text from Chat Completions response
+	// Extract assistant text from Perplexity response
 	try 
 	{
 		if(resp1 != null && resp1.containsKey("choices"))
@@ -534,73 +534,70 @@ for each  comp2 in matching_companies
 	{
 		json1 = raw1;
 	}
-	// -------- CALL 2: JSON normalisation and enrichment
-	prompt2 = "You are a strict JSON normalisation and enrichment engine.\n" + "Return ONLY a single JSON object.\n\n" + "Inputs:\n" + "- target_company_website: " + website + "\n" + "- advertised_job_title: " + target_job_title + "\n" + "- company_domain: " + domain + "\n" + "- stakeholders_and_pattern: " + json1 + "\n\n" + "Output schema:\n" + "{\n" + "  \"primary_contact\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"email_predicted\": null, \"email_predicted_confidence\": null, \"email_predicted_method\": null, \"email_permutations\": null, \"email_verification_guidance\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null},\n" + "  \"secondary_contact\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"email_predicted\": null, \"email_predicted_confidence\": null, \"email_predicted_method\": null, \"email_permutations\": null, \"email_verification_guidance\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null}\n" + "}\n";
-	input_items_2 = List();
-	user_item_2 = Map();
-	user_item_2.put("role","user");
-	user_item_2.put("content",prompt2);
-	input_items_2.add(user_item_2);
-	body_2 = Map();
-	body_2.put("model",MODEL);
-	body_2.put("messages",input_items_2);
-	body_2.put("temperature",0);
-	// Use response_format for JSON mode (correct OpenAI format)
-	format_map = Map();
-	format_map.put("type","json_object");
-	body_2.put("response_format",format_map);
-	resp2 = null;
-	raw2 = null;
-	try 
-	{
-		resp2 = invokeurl
-		[
-			url :"https://api.openai.com/v1/chat/completions"
-			type :POST
-			body:body_2.toString()
-			headers:headers
-		];
-	}
-	catch (e_call2)
-	{
-		continue;
-	}
-	// Extract assistant text from Chat Completions response
-	try 
-	{
-		if(resp2 != null && resp2.containsKey("choices"))
-		{
-			choices_2 = resp2.get("choices");
-			if(choices_2 != null && choices_2.size() > 0)
-			{
-				first_choice_2 = choices_2.get(0);
-				if(first_choice_2 != null && first_choice_2.containsKey("message"))
-				{
-					message_2 = first_choice_2.get("message");
-					if(message_2 != null && message_2.containsKey("content"))
-					{
-						raw2 = message_2.get("content");
-					}
-				}
-			}
-		}
-	}
-	catch (e_text2)
-	{
-		raw2 = null;
-	}
-	if(raw2 == null || raw2.trim() == "")
-	{
-		continue;
-	}
+	// Parse contact data
 	contact_map = null;
 	try 
 	{
-		contact_map = raw2.toMap();
+		contact_map = json1.toMap();
 	}
-	catch (e_parse2)
+	catch (e_parse1)
 	{
+		info "Failed to parse contact JSON for " + company_name_str + ": " + json1;
 		continue;
+	}
+	// Build enriched contact result
+	primary_contact = Map();
+	secondary_contact = Map();
+	email_pattern = null;
+	// Extract primary stakeholder
+	if(contact_map.containsKey("primary_stakeholder"))
+	{
+		ps = contact_map.get("primary_stakeholder");
+		if(ps != null)
+		{
+			primary_contact.put("name",ps.get("name"));
+			primary_contact.put("job_title",ps.get("job_title"));
+			primary_contact.put("company",ps.get("company"));
+			primary_contact.put("email",ps.get("email"));
+			primary_contact.put("phone",ps.get("phone"));
+			primary_contact.put("location",ps.get("location"));
+			primary_contact.put("linkedin_url",ps.get("linkedin_url"));
+			primary_contact.put("company_website",ps.get("company_website"));
+			primary_contact.put("source_url",ps.get("source_url"));
+			primary_contact.put("notes",ps.get("notes"));
+		}
+	}
+	// Extract secondary stakeholder
+	if(contact_map.containsKey("secondary_stakeholder"))
+	{
+		ss = contact_map.get("secondary_stakeholder");
+		if(ss != null)
+		{
+			secondary_contact.put("name",ss.get("name"));
+			secondary_contact.put("job_title",ss.get("job_title"));
+			secondary_contact.put("company",ss.get("company"));
+			secondary_contact.put("email",ss.get("email"));
+			secondary_contact.put("phone",ss.get("phone"));
+			secondary_contact.put("location",ss.get("location"));
+			secondary_contact.put("linkedin_url",ss.get("linkedin_url"));
+			secondary_contact.put("company_website",ss.get("company_website"));
+			secondary_contact.put("source_url",ss.get("source_url"));
+			secondary_contact.put("notes",ss.get("notes"));
+		}
+	}
+	// Get email pattern
+	if(contact_map.containsKey("email_pattern_hint"))
+	{
+		email_pattern = contact_map.get("email_pattern_hint");
+	}
+	// Build final contact map
+	contacts_result = Map();
+	contacts_result.put("primary_contact",primary_contact);
+	contacts_result.put("secondary_contact",secondary_contact);
+	contacts_result.put("email_pattern",email_pattern);
+	if(contact_map.containsKey("email_examples"))
+	{
+		contacts_result.put("email_examples",contact_map.get("email_examples"));
 	}
 	company_result = Map();
 	company_result.put("company_name",company_name);
@@ -608,7 +605,8 @@ for each  comp2 in matching_companies
 	company_result.put("company_domain",domain);
 	company_result.put("discovered_sector",comp2.get("sector"));
 	company_result.put("employee_size",comp2.get("employee_size"));
-	company_result.put("contacts",contact_map);
+	company_result.put("location",comp2.get("location"));
+	company_result.put("contacts",contacts_result);
 	results.add(company_result);
 	if(results.size() >= max_companies)
 	{
