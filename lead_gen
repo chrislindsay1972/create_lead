@@ -1,4 +1,4 @@
-void automation.lead_gen(String sector,String company_size,String jobTitle)
+Map automation.lead_gen(String sector,String company_size,String jobTitle)
 {
 out = Map();
 // End-to-end: discover UK companies for a sector + size (up to 20, paginated),
