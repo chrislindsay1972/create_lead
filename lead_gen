@@ -618,6 +618,32 @@ for each  comp2 in matching_companies
 		company_name_str = company_name;
 	}
 	// -----------------------------------------
+	// HELPER: List of invalid/placeholder names to reject
+	// -----------------------------------------
+	invalid_names = List();
+	invalid_names.add("not found");
+	invalid_names.add("not identified");
+	invalid_names.add("no match");
+	invalid_names.add("no current match");
+	invalid_names.add("no current match found");
+	invalid_names.add("none found");
+	invalid_names.add("none identified");
+	invalid_names.add("unknown");
+	invalid_names.add("n/a");
+	invalid_names.add("na");
+	invalid_names.add("none");
+	invalid_names.add("no name");
+	invalid_names.add("no result");
+	invalid_names.add("not available");
+	invalid_names.add("unable to find");
+	invalid_names.add("could not find");
+	invalid_names.add("no information");
+	invalid_names.add("not disclosed");
+	invalid_names.add("undisclosed");
+	invalid_names.add("no data");
+	invalid_names.add("not specified");
+	invalid_names.add("unspecified");
+	// -----------------------------------------
 	// STEP 1: Simple search for person's name and LinkedIn
 	// -----------------------------------------
 	prompt_find = "Find the " + fallback_search_str + " at " + company_name_str + " (" + website + ").\n\n" + "Search LinkedIn and company website to find:\n" + "1. Their full name\n" + "2. Exact job title\n" + "3. LinkedIn profile URL (format: https://linkedin.com/in/username)\n\n" + "Also find another senior executive (CEO, COO, or other C-level).\n\n" + "Return ONLY JSON:\n" + "{\"primary\":{\"name\":\"\",\"title\":\"\",\"linkedin\":\"\"},\"secondary\":{\"name\":\"\",\"title\":\"\",\"linkedin\":\"\"},\"source\":\"\"}";
@@ -705,7 +731,21 @@ for each  comp2 in matching_companies
 					pn = prim.get("name");
 					if(pn != null && (pn + "").trim() != "" && (pn + "").trim().toLowerCase() != "null")
 					{
-						found_primary_name = (pn + "").trim();
+						pn_check = (pn + "").trim().toLowerCase();
+						pn_is_valid = true;
+						// Check against invalid placeholder names
+						for each  inv_name in invalid_names
+						{
+							if(pn_check == inv_name || pn_check.indexOf(inv_name) >= 0)
+							{
+								pn_is_valid = false;
+								break;
+							}
+						}
+						if(pn_is_valid == true)
+						{
+							found_primary_name = (pn + "").trim();
+						}
 					}
 					pt = prim.get("title");
 					if(pt != null && (pt + "").trim() != "" && (pt + "").trim().toLowerCase() != "null")
@@ -727,7 +767,21 @@ for each  comp2 in matching_companies
 					sn = sec.get("name");
 					if(sn != null && (sn + "").trim() != "" && (sn + "").trim().toLowerCase() != "null")
 					{
-						found_secondary_name = (sn + "").trim();
+						sn_check = (sn + "").trim().toLowerCase();
+						sn_is_valid = true;
+						// Check against invalid placeholder names
+						for each  inv_name in invalid_names
+						{
+							if(sn_check == inv_name || sn_check.indexOf(inv_name) >= 0)
+							{
+								sn_is_valid = false;
+								break;
+							}
+						}
+						if(sn_is_valid == true)
+						{
+							found_secondary_name = (sn + "").trim();
+						}
 					}
 					st = sec.get("title");
 					if(st != null && (st + "").trim() != "" && (st + "").trim().toLowerCase() != "null")
@@ -838,7 +892,20 @@ for each  comp2 in matching_companies
 							pn_fb = prim_fb.get("name");
 							if(pn_fb != null && (pn_fb + "").trim() != "" && (pn_fb + "").trim().toLowerCase() != "null")
 							{
-								found_primary_name = (pn_fb + "").trim();
+								pn_fb_check = (pn_fb + "").trim().toLowerCase();
+								pn_fb_valid = true;
+								for each  inv_name in invalid_names
+								{
+									if(pn_fb_check == inv_name || pn_fb_check.indexOf(inv_name) >= 0)
+									{
+										pn_fb_valid = false;
+										break;
+									}
+								}
+								if(pn_fb_valid == true)
+								{
+									found_primary_name = (pn_fb + "").trim();
+								}
 							}
 							pt_fb = prim_fb.get("title");
 							if(pt_fb != null && (pt_fb + "").trim() != "" && (pt_fb + "").trim().toLowerCase() != "null")
@@ -860,7 +927,20 @@ for each  comp2 in matching_companies
 							sn_fb = sec_fb.get("name");
 							if(sn_fb != null && (sn_fb + "").trim() != "" && (sn_fb + "").trim().toLowerCase() != "null")
 							{
-								found_secondary_name = (sn_fb + "").trim();
+								sn_fb_check = (sn_fb + "").trim().toLowerCase();
+								sn_fb_valid = true;
+								for each  inv_name in invalid_names
+								{
+									if(sn_fb_check == inv_name || sn_fb_check.indexOf(inv_name) >= 0)
+									{
+										sn_fb_valid = false;
+										break;
+									}
+								}
+								if(sn_fb_valid == true)
+								{
+									found_secondary_name = (sn_fb + "").trim();
+								}
 							}
 							st_fb = sec_fb.get("title");
 							if(st_fb != null && (st_fb + "").trim() != "" && (st_fb + "").trim().toLowerCase() != "null")
