@@ -21,6 +21,7 @@ if(OPENAI_API_KEY == null || OPENAI_API_KEY.trim() == "")
 	out.put("status","ERROR");
 	out.put("message","OPENAI_API_KEY not configured.");
 	info out;
+	return out;
 }
 MODEL = zoho.crm.getOrgVariable("OPENAI_RESPONSES_MODEL");
 if(MODEL == null || MODEL.trim() == "")
@@ -141,11 +142,7 @@ for each  page in pages_seed
 	{
 		token_str = next_page_token;
 	}
-	promptA = "RUNTIME_CONTEXT\n" + "requested_sector: " + requested_sector + "\n" + "requested_company_size: " + requested_size + "\n" + "country: UK\n" + "page: " + page + "\n" + "page_size: " + page_size + "\n" + "next_page_token: " + token_str + "\n" + "END_RUNTIME_CONTEXT\n\n" + "You are a strict UK company discovery engine.\n" + "Use web search.\n" + "Return ONLY a single JSON object. No prose.\n" + "The first character must be '{' and the last must be '}'.\n\n" + "Task:\n" + "1) Find UK companies that plausibly operate in the requested_sector.\n" + "2) For each company, provide a website you are confident belongs to the company.\n" + "3) Provide employee_size as a string like '1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'. If unknown, null.\n" + "4) Return up to page_size companies per page.\n" + "5) If more results exist, return a next_page_token (opaque string). If no more, null.\n\n" + "Output schema:\n" + "{\n" + "  \"companies\": [\n" + "    {\"name\": null, \"website\": null, \"employee_size\": null, \"location\": null, \"sector\": null, \"source_url\": null}\n" + "  ],\n" + "  \"next_page_token\": null\n" + "}\n";
-	tools_list_A = List();
-	web_tool_A = Map();
-	web_tool_A.put("type","web_search");
-	tools_list_A.add(web_tool_A);
+	promptA = "RUNTIME_CONTEXT\n" + "requested_sector: " + requested_sector + "\n" + "requested_company_size: " + requested_size + "\n" + "country: UK\n" + "page: " + page + "\n" + "page_size: " + page_size + "\n" + "next_page_token: " + token_str + "\n" + "END_RUNTIME_CONTEXT\n\n" + "You are a strict UK company discovery engine.\n" + "Return ONLY a single JSON object. No prose.\n" + "The first character must be '{' and the last must be '}'.\n\n" + "Task:\n" + "1) Find UK companies that plausibly operate in the requested_sector.\n" + "2) For each company, provide a website you are confident belongs to the company.\n" + "3) Provide employee_size as a string like '1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'. If unknown, null.\n" + "4) Return up to page_size companies per page.\n" + "5) If more results exist, return a next_page_token (opaque string). If no more, null.\n\n" + "Output schema:\n" + "{\n" + "  \"companies\": [\n" + "    {\"name\": null, \"website\": null, \"employee_size\": null, \"location\": null, \"sector\": null, \"source_url\": null}\n" + "  ],\n" + "  \"next_page_token\": null\n" + "}\n";
 	input_items_A = List();
 	user_item_A = Map();
 	user_item_A.put("role","user");
@@ -153,16 +150,15 @@ for each  page in pages_seed
 	input_items_A.add(user_item_A);
 	body_A = Map();
 	body_A.put("model",MODEL);
-	body_A.put("input",input_items_A);
+	body_A.put("messages",input_items_A);
 	body_A.put("temperature",0);
-	body_A.put("tools",tools_list_A);
 	respA = null;
 	rawA = null;
 	try 
 	{
 		respA = invokeurl
 		[
-			url :"https://api.openai.com/v1/responses"
+			url :"https://api.openai.com/v1/chat/completions"
 			type :POST
 			body:body_A.toString()
 			headers:headers
@@ -172,38 +168,21 @@ for each  page in pages_seed
 	{
 		continue;
 	}
-	// Extract assistant text
+	// Extract assistant text from Chat Completions response
 	try 
 	{
-		if(respA != null && respA.containsKey("output_text"))
+		if(respA != null && respA.containsKey("choices"))
 		{
-			rawA = respA.get("output_text");
-		}
-		if(rawA == null || rawA.trim() == "")
-		{
-			output_list_A = respA.get("output");
-			if(output_list_A != null)
+			choices_A = respA.get("choices");
+			if(choices_A != null && choices_A.size() > 0)
 			{
-				for each  out_item_A in output_list_A
+				first_choice_A = choices_A.get(0);
+				if(first_choice_A != null && first_choice_A.containsKey("message"))
 				{
-					if(out_item_A != null && out_item_A.containsKey("content"))
+					message_A = first_choice_A.get("message");
+					if(message_A != null && message_A.containsKey("content"))
 					{
-						content_list_A = out_item_A.get("content");
-						if(content_list_A != null)
-						{
-							for each  cA in content_list_A
-							{
-								if(cA != null && cA.containsKey("text"))
-								{
-									rawA = cA.get("text");
-									break;
-								}
-							}
-						}
-					}
-					if(rawA != null && rawA.trim() != "")
-					{
-						break;
+						rawA = message_A.get("content");
 					}
 				}
 			}
@@ -264,13 +243,14 @@ for each  page in pages_seed
 			continue;
 		}
 		wlc = (w + "").trim().toLowerCase();
+		// Remove https:// prefix using subString (NO replace)
 		if(wlc.startsWith("https://"))
 		{
-			wlc = wlc.replaceFirst("https://","");
+			wlc = wlc.subString(8,wlc.length());
 		}
 		else if(wlc.startsWith("http://"))
 		{
-			wlc = wlc.replaceFirst("http://","");
+			wlc = wlc.subString(7,wlc.length());
 		}
 		if(wlc.endsWith("/"))
 		{
@@ -282,13 +262,14 @@ for each  page in pages_seed
 			if(existing != null && existing.get("website") != null)
 			{
 				exw = (existing.get("website") + "").trim().toLowerCase();
+				// Remove https:// prefix using subString (NO replace)
 				if(exw.startsWith("https://"))
 				{
-					exw = exw.replaceFirst("https://","");
+					exw = exw.subString(8,exw.length());
 				}
 				else if(exw.startsWith("http://"))
 				{
-					exw = exw.replaceFirst("http://","");
+					exw = exw.subString(7,exw.length());
 				}
 				if(exw.endsWith("/"))
 				{
@@ -447,15 +428,15 @@ for each  comp2 in matching_companies
 	{
 		company_name = (comp2.get("name") + "").trim();
 	}
-	// Derive domain
+	// Derive domain (NO replace - use subString)
 	domain_lc = website.trim().toLowerCase();
 	if(domain_lc.startsWith("https://"))
 	{
-		domain_lc = domain_lc.replaceFirst("https://","");
+		domain_lc = domain_lc.subString(8,domain_lc.length());
 	}
 	else if(domain_lc.startsWith("http://"))
 	{
-		domain_lc = domain_lc.replaceFirst("http://","");
+		domain_lc = domain_lc.subString(7,domain_lc.length());
 	}
 	slash_index = domain_lc.indexOf("/");
 	if(slash_index > 0)
@@ -472,17 +453,13 @@ for each  comp2 in matching_companies
 		domain_lc = domain_lc.subString(4,domain_lc.length());
 	}
 	domain = domain_lc;
-	// -------- CALL 1 (web_search)
+	// -------- CALL 1: Contact discovery
 	company_name_str = "null";
 	if(company_name != null && company_name.trim() != "")
 	{
 		company_name_str = company_name;
 	}
 	prompt1 = "RUNTIME_CONTEXT\n" + "target_company_website: " + website + "\n" + "advertised_job_title: " + target_job_title + "\n" + "company_domain: " + domain + "\n" + "company_name: " + company_name_str + "\n" + "END_RUNTIME_CONTEXT\n\n" + "Return ONLY a single JSON object. No prose. No markdown.\n" + "Populate email/phone/linkedin_url only if publicly visible AND then include source_url.\n\n" + "Output schema:\n" + "{\n" + "  \"primary_stakeholder\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null},\n" + "  \"secondary_stakeholder\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null},\n" + "  \"email_pattern_hint\": null,\n" + "  \"email_examples\": null\n" + "}\n";
-	tools_list_1 = List();
-	web_tool_1 = Map();
-	web_tool_1.put("type","web_search");
-	tools_list_1.add(web_tool_1);
 	input_items_1 = List();
 	user_item_1 = Map();
 	user_item_1.put("role","user");
@@ -490,16 +467,15 @@ for each  comp2 in matching_companies
 	input_items_1.add(user_item_1);
 	body_1 = Map();
 	body_1.put("model",MODEL);
-	body_1.put("input",input_items_1);
+	body_1.put("messages",input_items_1);
 	body_1.put("temperature",0);
-	body_1.put("tools",tools_list_1);
 	resp1 = null;
 	raw1 = null;
 	try 
 	{
 		resp1 = invokeurl
 		[
-			url :"https://api.openai.com/v1/responses"
+			url :"https://api.openai.com/v1/chat/completions"
 			type :POST
 			body:body_1.toString()
 			headers:headers
@@ -509,38 +485,21 @@ for each  comp2 in matching_companies
 	{
 		continue;
 	}
-	// Extract assistant text
+	// Extract assistant text from Chat Completions response
 	try 
 	{
-		if(resp1 != null && resp1.containsKey("output_text"))
+		if(resp1 != null && resp1.containsKey("choices"))
 		{
-			raw1 = resp1.get("output_text");
-		}
-		if(raw1 == null || raw1.trim() == "")
-		{
-			output_list_1 = resp1.get("output");
-			if(output_list_1 != null)
+			choices_1 = resp1.get("choices");
+			if(choices_1 != null && choices_1.size() > 0)
 			{
-				for each  out_item_1 in output_list_1
+				first_choice_1 = choices_1.get(0);
+				if(first_choice_1 != null && first_choice_1.containsKey("message"))
 				{
-					if(out_item_1 != null && out_item_1.containsKey("content"))
+					message_1 = first_choice_1.get("message");
+					if(message_1 != null && message_1.containsKey("content"))
 					{
-						content_list_1 = out_item_1.get("content");
-						if(content_list_1 != null)
-						{
-							for each  c1 in content_list_1
-							{
-								if(c1 != null && c1.containsKey("text"))
-								{
-									raw1 = c1.get("text");
-									break;
-								}
-							}
-						}
-					}
-					if(raw1 != null && raw1.trim() != "")
-					{
-						break;
+						raw1 = message_1.get("content");
 					}
 				}
 			}
@@ -569,7 +528,7 @@ for each  comp2 in matching_companies
 	{
 		json1 = raw1;
 	}
-	// -------- CALL 2 (JSON mode)
+	// -------- CALL 2: JSON normalisation and enrichment
 	prompt2 = "You are a strict JSON normalisation and enrichment engine.\n" + "Return ONLY a single JSON object.\n\n" + "Inputs:\n" + "- target_company_website: " + website + "\n" + "- advertised_job_title: " + target_job_title + "\n" + "- company_domain: " + domain + "\n" + "- stakeholders_and_pattern: " + json1 + "\n\n" + "Output schema:\n" + "{\n" + "  \"primary_contact\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"email_predicted\": null, \"email_predicted_confidence\": null, \"email_predicted_method\": null, \"email_permutations\": null, \"email_verification_guidance\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null},\n" + "  \"secondary_contact\": {\"name\": null, \"job_title\": null, \"company\": null, \"email\": null, \"email_predicted\": null, \"email_predicted_confidence\": null, \"email_predicted_method\": null, \"email_permutations\": null, \"email_verification_guidance\": null, \"phone\": null, \"location\": null, \"linkedin_url\": null, \"company_website\": null, \"source_url\": null, \"notes\": null}\n" + "}\n";
 	input_items_2 = List();
 	user_item_2 = Map();
@@ -578,20 +537,19 @@ for each  comp2 in matching_companies
 	input_items_2.add(user_item_2);
 	body_2 = Map();
 	body_2.put("model",MODEL);
-	body_2.put("input",input_items_2);
+	body_2.put("messages",input_items_2);
 	body_2.put("temperature",0);
-	text_map = Map();
+	// Use response_format for JSON mode (correct OpenAI format)
 	format_map = Map();
 	format_map.put("type","json_object");
-	text_map.put("format",format_map);
-	body_2.put("text",text_map);
+	body_2.put("response_format",format_map);
 	resp2 = null;
 	raw2 = null;
 	try 
 	{
 		resp2 = invokeurl
 		[
-			url :"https://api.openai.com/v1/responses"
+			url :"https://api.openai.com/v1/chat/completions"
 			type :POST
 			body:body_2.toString()
 			headers:headers
@@ -601,38 +559,21 @@ for each  comp2 in matching_companies
 	{
 		continue;
 	}
-	// Extract assistant text from call 2
+	// Extract assistant text from Chat Completions response
 	try 
 	{
-		if(resp2 != null && resp2.containsKey("output_text"))
+		if(resp2 != null && resp2.containsKey("choices"))
 		{
-			raw2 = resp2.get("output_text");
-		}
-		if(raw2 == null || raw2.trim() == "")
-		{
-			output_list_2 = resp2.get("output");
-			if(output_list_2 != null)
+			choices_2 = resp2.get("choices");
+			if(choices_2 != null && choices_2.size() > 0)
 			{
-				for each  out_item_2 in output_list_2
+				first_choice_2 = choices_2.get(0);
+				if(first_choice_2 != null && first_choice_2.containsKey("message"))
 				{
-					if(out_item_2 != null && out_item_2.containsKey("content"))
+					message_2 = first_choice_2.get("message");
+					if(message_2 != null && message_2.containsKey("content"))
 					{
-						content_list_2 = out_item_2.get("content");
-						if(content_list_2 != null)
-						{
-							for each  c2 in content_list_2
-							{
-								if(c2 != null && c2.containsKey("text"))
-								{
-									raw2 = c2.get("text");
-									break;
-								}
-							}
-						}
-					}
-					if(raw2 != null && raw2.trim() != "")
-					{
-						break;
+						raw2 = message_2.get("content");
 					}
 				}
 			}
@@ -675,4 +616,5 @@ out.put("job_title",target_job_title);
 out.put("result_count",results.size());
 out.put("results",results);
 info out;
+return out;
 }
