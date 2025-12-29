@@ -1,4 +1,4 @@
-void automation.lead_gen(String sector,String company_size,String jobTitle)
+void automation.lead_gen(String sector,String company_size,String jobTitle,String max_results)
 {
 out = Map();
 // End-to-end: discover UK companies for a sector + size (up to 20, paginated),
@@ -11,7 +11,8 @@ out = Map();
 // - NO split()   <-- IMPORTANT (uses indexOf/subString only)
 //
 // Usage example:
-// result = automation.lead_gen("finance","100","CFO");
+// result = automation.lead_gen("finance","100","CFO","30");
+// Parameters: sector, company_size, jobTitle, max_results (1-100, default 20)
 // -----------------------------------------
 // Perplexity API config
 // -----------------------------------------
@@ -274,15 +275,46 @@ if(requested_size != "")
 // -----------------------------------------
 // Pagination controls
 // -----------------------------------------
-max_companies = 50;
+// -----------------------------------------
+// Parse max_results parameter (default: 20)
+// -----------------------------------------
+max_companies = 20;
+if(max_results != null && max_results.trim() != "")
+{
+	try 
+	{
+		max_companies = max_results.trim().toLong();
+		if(max_companies < 1)
+		{
+			max_companies = 20;
+		}
+		if(max_companies > 100)
+		{
+			max_companies = 100;
+		}
+	}
+	catch (e_max)
+	{
+		max_companies = 20;
+	}
+}
+// Calculate pages needed (10 companies per page, with buffer)
 page_size = 10;
+pages_needed = (max_companies / page_size) + 2;
+if(pages_needed > 12)
+{
+	pages_needed = 12;
+}
 pages_seed = List();
-pages_seed.add(1);
-pages_seed.add(2);
-pages_seed.add(3);
-pages_seed.add(4);
-pages_seed.add(5);
-pages_seed.add(6);
+page_counter = 1;
+for each  i in {1,2,3,4,5,6,7,8,9,10,11,12}
+{
+	if(page_counter <= pages_needed)
+	{
+		pages_seed.add(page_counter);
+		page_counter = page_counter + 1;
+	}
+}
 next_page_token = null;
 companies_found = List();
 // -----------------------------------------
@@ -306,7 +338,13 @@ for each  page in pages_seed
 	{
 		token_str = next_page_token;
 	}
-	promptA = "Find UK companies in the " + requested_sector + " sector with around " + requested_size + " employees.\n\n" + "Return " + page_size + " companies. Page " + page + ".\n\n" + "For each company provide: name, website, employee_size (e.g. '51-200'), location, sector.\n\n" + "Return ONLY JSON, no markdown:\n" + "{\"companies\":[{\"name\":\"\",\"website\":\"\",\"employee_size\":\"\",\"location\":\"\",\"sector\":\"\"}],\"next_page_token\":null}";
+	// Build size hint for prompt
+	size_hint = "";
+	if(requested_size != "")
+	{
+		size_hint = " Target company size: around " + requested_size + " employees (but include companies ranging from 20 to 500 employees).";
+	}
+	promptA = "Find UK companies in the " + requested_sector + " sector." + size_hint + "\n\n" + "Return " + page_size + " different companies for page " + page + ". Each page should have DIFFERENT companies.\n\n" + "Include a MIX of:\n" + "- Well-known established companies\n" + "- Growing startups and scale-ups\n" + "- B2B service providers\n" + "- Companies with recent funding or news\n\n" + "For each company provide: name, website, employee_size (e.g. '11-50', '51-200', '201-500'), location (city), sector.\n\n" + "Return ONLY valid JSON, no markdown:\n" + "{\"companies\":[{\"name\":\"\",\"website\":\"\",\"employee_size\":\"\",\"location\":\"\",\"sector\":\"\"}],\"next_page_token\":\"page" + (page + 1) + "\"}";
 	input_items_A = List();
 	user_item_A = Map();
 	user_item_A.put("role","user");
