@@ -274,12 +274,15 @@ if(requested_size != "")
 // -----------------------------------------
 // Pagination controls
 // -----------------------------------------
-max_companies = 20;
+max_companies = 50;
 page_size = 10;
 pages_seed = List();
 pages_seed.add(1);
 pages_seed.add(2);
 pages_seed.add(3);
+pages_seed.add(4);
+pages_seed.add(5);
+pages_seed.add(6);
 next_page_token = null;
 companies_found = List();
 // -----------------------------------------
