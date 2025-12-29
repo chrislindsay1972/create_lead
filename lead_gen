@@ -53,41 +53,168 @@ if(jobTitle != null)
 	target_job_title = jobTitle.trim();
 }
 // -----------------------------------------
-// Build fallback job titles list based on requested title
+// Build fallback job titles list based on requested title (GENERIC APPROACH)
+// Extracts the function/department from title and generates variations
 // -----------------------------------------
 fallback_titles = List();
 fallback_titles.add(target_job_title);
-// Add common alternatives for CFO
-if(target_job_title.toLowerCase() == "cfo" || target_job_title.toLowerCase().indexOf("chief financial") >= 0)
+title_lower = target_job_title.toLowerCase();
+// Extract the function/department from the title
+extracted_function = "";
+// Check for "Director of X" or "X Director" pattern
+if(title_lower.indexOf("director of ") >= 0)
 {
+	dir_pos = title_lower.indexOf("director of ");
+	extracted_function = target_job_title.subString(dir_pos + 12, target_job_title.length()).trim();
+}
+else if(title_lower.indexOf(" director") >= 0)
+{
+	dir_pos = title_lower.indexOf(" director");
+	extracted_function = target_job_title.subString(0, dir_pos).trim();
+}
+// Check for "Head of X" pattern
+else if(title_lower.indexOf("head of ") >= 0)
+{
+	head_pos = title_lower.indexOf("head of ");
+	extracted_function = target_job_title.subString(head_pos + 8, target_job_title.length()).trim();
+}
+// Check for "VP X" or "VP of X" pattern
+else if(title_lower.indexOf("vp of ") >= 0)
+{
+	vp_pos = title_lower.indexOf("vp of ");
+	extracted_function = target_job_title.subString(vp_pos + 6, target_job_title.length()).trim();
+}
+else if(title_lower.indexOf("vp ") >= 0)
+{
+	vp_pos = title_lower.indexOf("vp ");
+	extracted_function = target_job_title.subString(vp_pos + 3, target_job_title.length()).trim();
+}
+// Check for "Chief X Officer" pattern
+else if(title_lower.indexOf("chief ") >= 0 && title_lower.indexOf(" officer") >= 0)
+{
+	chief_pos = title_lower.indexOf("chief ");
+	officer_pos = title_lower.indexOf(" officer");
+	if(officer_pos > chief_pos + 6)
+	{
+		extracted_function = target_job_title.subString(chief_pos + 6, officer_pos).trim();
+	}
+}
+// Check for "X Manager" pattern
+else if(title_lower.indexOf(" manager") >= 0)
+{
+	mgr_pos = title_lower.indexOf(" manager");
+	extracted_function = target_job_title.subString(0, mgr_pos).trim();
+}
+// Generate fallback titles based on extracted function
+if(extracted_function != "")
+{
+	func_lower = extracted_function.toLowerCase();
+	// Add variations: Director, Head of, VP, Manager
+	fallback_titles.add(extracted_function + " Director");
+	fallback_titles.add("Director of " + extracted_function);
+	fallback_titles.add("Head of " + extracted_function);
+	fallback_titles.add("VP " + extracted_function);
+	fallback_titles.add(extracted_function + " Manager");
+	// Add C-level equivalent based on function
+	if(func_lower == "operations" || func_lower == "operating")
+	{
+		fallback_titles.add("COO");
+		fallback_titles.add("Chief Operating Officer");
+	}
+	if(func_lower == "finance" || func_lower == "financial")
+	{
+		fallback_titles.add("CFO");
+		fallback_titles.add("Chief Financial Officer");
+		fallback_titles.add("Financial Controller");
+	}
+	if(func_lower == "technology" || func_lower == "technical" || func_lower == "engineering" || func_lower == "it")
+	{
+		fallback_titles.add("CTO");
+		fallback_titles.add("Chief Technology Officer");
+	}
+	if(func_lower == "marketing")
+	{
+		fallback_titles.add("CMO");
+		fallback_titles.add("Chief Marketing Officer");
+	}
+	if(func_lower == "sales" || func_lower == "commercial" || func_lower == "revenue")
+	{
+		fallback_titles.add("CRO");
+		fallback_titles.add("Chief Revenue Officer");
+		fallback_titles.add("Commercial Director");
+	}
+	if(func_lower == "people" || func_lower == "human resources" || func_lower == "hr")
+	{
+		fallback_titles.add("CHRO");
+		fallback_titles.add("Chief People Officer");
+		fallback_titles.add("HR Director");
+	}
+	if(func_lower == "product")
+	{
+		fallback_titles.add("CPO");
+		fallback_titles.add("Chief Product Officer");
+	}
+}
+// Handle common C-level abbreviations directly
+if(title_lower == "cfo")
+{
+	fallback_titles.add("Chief Financial Officer");
 	fallback_titles.add("Finance Director");
 	fallback_titles.add("Head of Finance");
 	fallback_titles.add("Financial Controller");
 	fallback_titles.add("VP Finance");
 }
-// Add common alternatives for CEO
-if(target_job_title.toLowerCase() == "ceo" || target_job_title.toLowerCase().indexOf("chief executive") >= 0)
+if(title_lower == "ceo")
 {
+	fallback_titles.add("Chief Executive Officer");
 	fallback_titles.add("Managing Director");
 	fallback_titles.add("Founder");
 	fallback_titles.add("General Manager");
 }
-// Add common alternatives for CTO
-if(target_job_title.toLowerCase() == "cto" || target_job_title.toLowerCase().indexOf("chief technology") >= 0)
+if(title_lower == "cto")
 {
+	fallback_titles.add("Chief Technology Officer");
 	fallback_titles.add("VP Engineering");
 	fallback_titles.add("Head of Engineering");
 	fallback_titles.add("Technical Director");
+	fallback_titles.add("Head of Technology");
 }
-// Build search string for fallback titles
+if(title_lower == "coo")
+{
+	fallback_titles.add("Chief Operating Officer");
+	fallback_titles.add("Operations Director");
+	fallback_titles.add("Head of Operations");
+	fallback_titles.add("VP Operations");
+}
+if(title_lower == "cmo")
+{
+	fallback_titles.add("Chief Marketing Officer");
+	fallback_titles.add("Marketing Director");
+	fallback_titles.add("Head of Marketing");
+	fallback_titles.add("VP Marketing");
+}
+if(title_lower == "cro")
+{
+	fallback_titles.add("Chief Revenue Officer");
+	fallback_titles.add("Sales Director");
+	fallback_titles.add("Head of Sales");
+	fallback_titles.add("Commercial Director");
+}
+// Build search string for fallback titles (limit to first 6 to keep prompt manageable)
 fallback_search_str = "";
+title_count = 0;
 for each  ftitle in fallback_titles
 {
+	if(title_count >= 6)
+	{
+		break;
+	}
 	if(fallback_search_str != "")
 	{
 		fallback_search_str = fallback_search_str + " OR ";
 	}
 	fallback_search_str = fallback_search_str + "\"" + ftitle + "\"";
+	title_count = title_count + 1;
 }
 // -----------------------------------------
 // Helper: parse company_size into a normalised filter (NO split)
@@ -633,7 +760,7 @@ for each  comp2 in matching_companies
 	// -----------------------------------------
 	if(found_primary_name == null)
 	{
-		prompt_fallback = "Search for ANY senior finance or executive person at " + company_name_str + " (" + website + ").\n\n" + "Look for: CEO, CFO, Finance Director, Managing Director, Founder, Head of Finance, Financial Controller.\n\n" + "Search LinkedIn, Companies House UK, company website, press releases.\n\n" + "Return ONLY JSON:\n" + "{\"primary\":{\"name\":\"\",\"title\":\"\",\"linkedin\":\"\"},\"secondary\":{\"name\":\"\",\"title\":\"\",\"linkedin\":\"\"},\"source\":\"\"}";
+		prompt_fallback = "Search for ANY senior executive at " + company_name_str + " (" + website + ").\n\n" + "Look for: " + fallback_search_str + ", or any C-level executive, Director, Head of department, or VP.\n\n" + "Search LinkedIn, Companies House UK, company website, press releases.\n\n" + "Return ONLY JSON:\n" + "{\"primary\":{\"name\":\"\",\"title\":\"\",\"linkedin\":\"\"},\"secondary\":{\"name\":\"\",\"title\":\"\",\"linkedin\":\"\"},\"source\":\"\"}";
 		input_fb = List();
 		user_fb = Map();
 		user_fb.put("role","user");
