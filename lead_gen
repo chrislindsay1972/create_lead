@@ -1,4 +1,4 @@
-Map automation.lead_gen(String sector,String company_size,String jobTitle)
+void automation.lead_gen(String sector,String company_size,String jobTitle)
 {
 out = Map();
 // End-to-end: discover UK companies for a sector + size (up to 20, paginated),
@@ -16,13 +16,19 @@ out = Map();
 // OpenAI config
 // -----------------------------------------
 OPENAI_API_KEY = zoho.crm.getOrgVariable("OPENAI_API_KEY");
-if(OPENAI_API_KEY == null || OPENAI_API_KEY.trim() == "")
+api_key_valid = false;
+if(OPENAI_API_KEY != null && OPENAI_API_KEY.trim() != "")
+{
+	api_key_valid = true;
+}
+if(api_key_valid == false)
 {
 	out.put("status","ERROR");
 	out.put("message","OPENAI_API_KEY not configured.");
 	info out;
-	return out;
 }
+if(api_key_valid == true)
+{
 MODEL = zoho.crm.getOrgVariable("OPENAI_RESPONSES_MODEL");
 if(MODEL == null || MODEL.trim() == "")
 {
@@ -616,5 +622,5 @@ out.put("job_title",target_job_title);
 out.put("result_count",results.size());
 out.put("results",results);
 info out;
-return out;
+}
 }
