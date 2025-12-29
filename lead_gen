@@ -458,13 +458,13 @@ for each  comp2 in matching_companies
 		domain_lc = domain_lc.subString(4,domain_lc.length());
 	}
 	domain = domain_lc;
-	// -------- CALL 1: Contact discovery with Perplexity web search
+	// -------- CALL 1: Contact discovery with Perplexity web search (IMPROVED PROMPT)
 	company_name_str = "Unknown Company";
 	if(company_name != null && company_name.trim() != "")
 	{
 		company_name_str = company_name;
 	}
-	prompt1 = "Search the web to find contact information for people at " + company_name_str + " (website: " + website + ").\n\n" + "I need to find:\n" + "1. PRIMARY CONTACT: Someone with the job title '" + target_job_title + "' or similar senior role\n" + "2. SECONDARY CONTACT: Another senior executive or decision maker\n\n" + "For each person, search LinkedIn, the company website, news articles, and business directories to find:\n" + "- Full name\n" + "- Job title\n" + "- Email address (look for patterns like firstname@" + domain + " or check company contact pages)\n" + "- Phone number\n" + "- LinkedIn profile URL\n" + "- Location\n\n" + "Also determine the company's email pattern (e.g., firstname@domain, firstname.lastname@domain, f.lastname@domain).\n\n" + "Return ONLY a valid JSON object with no markdown, no code blocks, no explanation.\n" + "The response must start with { and end with }\n\n" + "JSON schema:\n" + "{\n" + "  \"primary_stakeholder\": {\"name\": \"John Smith\", \"job_title\": \"CFO\", \"company\": \"" + company_name_str + "\", \"email\": \"john.smith@" + domain + "\", \"phone\": \"+44 123 456 7890\", \"location\": \"London, UK\", \"linkedin_url\": \"https://linkedin.com/in/johnsmith\", \"company_website\": \"" + website + "\", \"source_url\": \"https://where-you-found-this.com\", \"notes\": \"Found on company about page\"},\n" + "  \"secondary_stakeholder\": {\"name\": \"Jane Doe\", \"job_title\": \"CEO\", \"company\": \"" + company_name_str + "\", \"email\": \"jane.doe@" + domain + "\", \"phone\": null, \"location\": \"London, UK\", \"linkedin_url\": \"https://linkedin.com/in/janedoe\", \"company_website\": \"" + website + "\", \"source_url\": \"https://linkedin.com\", \"notes\": \"Found on LinkedIn\"},\n" + "  \"email_pattern_hint\": \"firstname.lastname@" + domain + "\",\n" + "  \"email_examples\": [\"john.smith@" + domain + "\", \"jane.doe@" + domain + "\"]\n" + "}\n\n" + "Use null for any field where information cannot be found. Always include source_url for verified information.";
+	prompt1 = "Search the web thoroughly to find executive contact information for " + company_name_str + " (website: " + website + ", domain: " + domain + ").\n\n" + "PRIORITY SEARCH TARGETS:\n" + "1. PRIMARY: Find someone with job title '" + target_job_title + "' or equivalent (e.g., Chief Financial Officer, Finance Director)\n" + "2. SECONDARY: Find another C-level executive (CEO, COO, CTO, etc.)\n\n" + "SEARCH THESE SOURCES (in order of priority):\n" + "1. LinkedIn - Search 'site:linkedin.com/in " + company_name_str + " " + target_job_title + "' - GET THE FULL LINKEDIN URL\n" + "2. Company website About/Team/Leadership page at " + website + "\n" + "3. Companies House UK filings\n" + "4. Press releases and news articles\n" + "5. Crunchbase, ZoomInfo, RocketReach profiles\n\n" + "EMAIL DISCOVERY:\n" + "- Search for actual email addresses in press releases, job postings, contact pages\n" + "- Look for email patterns like: firstname@" + domain + ", firstname.lastname@" + domain + ", first.last@" + domain + "\n" + "- Check if company uses a different email domain than website\n\n" + "Return ONLY valid JSON. No markdown, no code blocks, no explanation.\n" + "Response must start with { and end with }\n\n" + "{\n" + "  \"primary_stakeholder\": {\n" + "    \"name\": \"Full Name or null\",\n" + "    \"job_title\": \"Exact Title or null\",\n" + "    \"company\": \"" + company_name_str + "\",\n" + "    \"email\": \"verified email or null\",\n" + "    \"phone\": \"phone number or null\",\n" + "    \"location\": \"City, Country or null\",\n" + "    \"linkedin_url\": \"https://linkedin.com/in/profilename or null\",\n" + "    \"company_website\": \"" + website + "\",\n" + "    \"source_url\": \"URL where you found this info\",\n" + "    \"notes\": \"How you found this person\"\n" + "  },\n" + "  \"secondary_stakeholder\": {\n" + "    \"name\": \"Full Name or null\",\n" + "    \"job_title\": \"Exact Title or null\",\n" + "    \"company\": \"" + company_name_str + "\",\n" + "    \"email\": \"verified email or null\",\n" + "    \"phone\": \"phone number or null\",\n" + "    \"location\": \"City, Country or null\",\n" + "    \"linkedin_url\": \"https://linkedin.com/in/profilename or null\",\n" + "    \"company_website\": \"" + website + "\",\n" + "    \"source_url\": \"URL where you found this info\",\n" + "    \"notes\": \"How you found this person\"\n" + "  },\n" + "  \"email_pattern_hint\": \"firstname.lastname@" + domain + " or null\",\n" + "  \"email_pattern_source\": \"Where you found this pattern\",\n" + "  \"email_examples\": [\"any verified emails found\"]\n" + "}\n";
 	input_items_1 = List();
 	user_item_1 = Map();
 	user_item_1.put("role","user");
@@ -545,50 +545,233 @@ for each  comp2 in matching_companies
 		info "Failed to parse contact JSON for " + company_name_str + ": " + json1;
 		continue;
 	}
-	// Build enriched contact result
-	primary_contact = Map();
-	secondary_contact = Map();
+	// Get email pattern from API response
 	email_pattern = null;
-	// Extract primary stakeholder
+	if(contact_map.containsKey("email_pattern_hint"))
+	{
+		email_pattern = contact_map.get("email_pattern_hint");
+	}
+	// -----------------------------------------
+	// HELPER FUNCTION: Generate email predictions from name + domain
+	// Uses indexOf/subString only (NO split, NO replace)
+	// -----------------------------------------
+	// Process PRIMARY contact
+	primary_contact = Map();
+	primary_has_name = false;
 	if(contact_map.containsKey("primary_stakeholder"))
 	{
 		ps = contact_map.get("primary_stakeholder");
 		if(ps != null)
 		{
-			primary_contact.put("name",ps.get("name"));
-			primary_contact.put("job_title",ps.get("job_title"));
-			primary_contact.put("company",ps.get("company"));
-			primary_contact.put("email",ps.get("email"));
-			primary_contact.put("phone",ps.get("phone"));
-			primary_contact.put("location",ps.get("location"));
-			primary_contact.put("linkedin_url",ps.get("linkedin_url"));
-			primary_contact.put("company_website",ps.get("company_website"));
-			primary_contact.put("source_url",ps.get("source_url"));
-			primary_contact.put("notes",ps.get("notes"));
+			ps_name = ps.get("name");
+			ps_email = ps.get("email");
+			// Check if we have a valid name (not null, not empty, not "null" string)
+			if(ps_name != null && (ps_name + "").trim() != "" && (ps_name + "").trim().toLowerCase() != "null")
+			{
+				primary_has_name = true;
+				primary_contact.put("name",ps_name);
+				primary_contact.put("job_title",ps.get("job_title"));
+				primary_contact.put("company",ps.get("company"));
+				primary_contact.put("phone",ps.get("phone"));
+				primary_contact.put("location",ps.get("location"));
+				primary_contact.put("linkedin_url",ps.get("linkedin_url"));
+				primary_contact.put("company_website",ps.get("company_website"));
+				primary_contact.put("source_url",ps.get("source_url"));
+				primary_contact.put("notes",ps.get("notes"));
+				// Handle email - if found use it, otherwise predict
+				if(ps_email != null && (ps_email + "").trim() != "" && (ps_email + "").trim().toLowerCase() != "null")
+				{
+					primary_contact.put("email",ps_email);
+					primary_contact.put("email_status","verified");
+					primary_contact.put("email_confidence","high");
+				}
+				else
+				{
+					// Generate predicted emails from name
+					full_name = (ps_name + "").trim().toLowerCase();
+					first_name = "";
+					last_name = "";
+					// Extract first and last name using indexOf (NO split)
+					space_pos = full_name.indexOf(" ");
+					if(space_pos > 0)
+					{
+						first_name = full_name.subString(0,space_pos).trim();
+						// Get last name (last word after final space)
+						remaining = full_name.subString(space_pos + 1,full_name.length()).trim();
+						last_space = remaining.lastIndexOf(" ");
+						if(last_space > 0)
+						{
+							last_name = remaining.subString(last_space + 1,remaining.length()).trim();
+						}
+						else
+						{
+							last_name = remaining;
+						}
+					}
+					else
+					{
+						first_name = full_name;
+					}
+					// Generate email permutations
+					email_perms = List();
+					if(first_name != "" && last_name != "")
+					{
+						// firstname.lastname@domain (most common UK pattern)
+						email_perms.add(first_name + "." + last_name + "@" + domain);
+						// firstname@domain
+						email_perms.add(first_name + "@" + domain);
+						// firstnamelastname@domain
+						email_perms.add(first_name + last_name + "@" + domain);
+						// f.lastname@domain
+						first_initial = first_name.subString(0,1);
+						email_perms.add(first_initial + "." + last_name + "@" + domain);
+						// flastname@domain
+						email_perms.add(first_initial + last_name + "@" + domain);
+						// lastname.firstname@domain
+						email_perms.add(last_name + "." + first_name + "@" + domain);
+						// Set primary predicted email (firstname.lastname is most common)
+						primary_contact.put("email",first_name + "." + last_name + "@" + domain);
+						primary_contact.put("email_status","predicted");
+						primary_contact.put("email_confidence","medium");
+						primary_contact.put("email_permutations",email_perms);
+						primary_contact.put("email_prediction_method","Generated from name + domain pattern");
+					}
+					else if(first_name != "")
+					{
+						email_perms.add(first_name + "@" + domain);
+						primary_contact.put("email",first_name + "@" + domain);
+						primary_contact.put("email_status","predicted");
+						primary_contact.put("email_confidence","low");
+						primary_contact.put("email_permutations",email_perms);
+						primary_contact.put("email_prediction_method","Generated from first name only");
+					}
+					else
+					{
+						primary_contact.put("email",null);
+						primary_contact.put("email_status","unknown");
+						primary_contact.put("email_confidence","none");
+					}
+				}
+			}
 		}
 	}
-	// Extract secondary stakeholder
+	// If primary contact is empty, add placeholder with company info
+	if(primary_has_name == false)
+	{
+		primary_contact.put("name",null);
+		primary_contact.put("job_title",target_job_title);
+		primary_contact.put("company",company_name_str);
+		primary_contact.put("email",null);
+		primary_contact.put("email_status","not_found");
+		primary_contact.put("phone",null);
+		primary_contact.put("location",null);
+		primary_contact.put("linkedin_url",null);
+		primary_contact.put("company_website",website);
+		primary_contact.put("source_url",null);
+		primary_contact.put("notes","No " + target_job_title + " found for this company");
+	}
+	// Process SECONDARY contact (same logic)
+	secondary_contact = Map();
+	secondary_has_name = false;
 	if(contact_map.containsKey("secondary_stakeholder"))
 	{
 		ss = contact_map.get("secondary_stakeholder");
 		if(ss != null)
 		{
-			secondary_contact.put("name",ss.get("name"));
-			secondary_contact.put("job_title",ss.get("job_title"));
-			secondary_contact.put("company",ss.get("company"));
-			secondary_contact.put("email",ss.get("email"));
-			secondary_contact.put("phone",ss.get("phone"));
-			secondary_contact.put("location",ss.get("location"));
-			secondary_contact.put("linkedin_url",ss.get("linkedin_url"));
-			secondary_contact.put("company_website",ss.get("company_website"));
-			secondary_contact.put("source_url",ss.get("source_url"));
-			secondary_contact.put("notes",ss.get("notes"));
+			ss_name = ss.get("name");
+			ss_email = ss.get("email");
+			// Check if we have a valid name
+			if(ss_name != null && (ss_name + "").trim() != "" && (ss_name + "").trim().toLowerCase() != "null")
+			{
+				secondary_has_name = true;
+				secondary_contact.put("name",ss_name);
+				secondary_contact.put("job_title",ss.get("job_title"));
+				secondary_contact.put("company",ss.get("company"));
+				secondary_contact.put("phone",ss.get("phone"));
+				secondary_contact.put("location",ss.get("location"));
+				secondary_contact.put("linkedin_url",ss.get("linkedin_url"));
+				secondary_contact.put("company_website",ss.get("company_website"));
+				secondary_contact.put("source_url",ss.get("source_url"));
+				secondary_contact.put("notes",ss.get("notes"));
+				// Handle email - if found use it, otherwise predict
+				if(ss_email != null && (ss_email + "").trim() != "" && (ss_email + "").trim().toLowerCase() != "null")
+				{
+					secondary_contact.put("email",ss_email);
+					secondary_contact.put("email_status","verified");
+					secondary_contact.put("email_confidence","high");
+				}
+				else
+				{
+					// Generate predicted emails from name
+					full_name_s = (ss_name + "").trim().toLowerCase();
+					first_name_s = "";
+					last_name_s = "";
+					space_pos_s = full_name_s.indexOf(" ");
+					if(space_pos_s > 0)
+					{
+						first_name_s = full_name_s.subString(0,space_pos_s).trim();
+						remaining_s = full_name_s.subString(space_pos_s + 1,full_name_s.length()).trim();
+						last_space_s = remaining_s.lastIndexOf(" ");
+						if(last_space_s > 0)
+						{
+							last_name_s = remaining_s.subString(last_space_s + 1,remaining_s.length()).trim();
+						}
+						else
+						{
+							last_name_s = remaining_s;
+						}
+					}
+					else
+					{
+						first_name_s = full_name_s;
+					}
+					email_perms_s = List();
+					if(first_name_s != "" && last_name_s != "")
+					{
+						email_perms_s.add(first_name_s + "." + last_name_s + "@" + domain);
+						email_perms_s.add(first_name_s + "@" + domain);
+						email_perms_s.add(first_name_s + last_name_s + "@" + domain);
+						first_initial_s = first_name_s.subString(0,1);
+						email_perms_s.add(first_initial_s + "." + last_name_s + "@" + domain);
+						email_perms_s.add(first_initial_s + last_name_s + "@" + domain);
+						secondary_contact.put("email",first_name_s + "." + last_name_s + "@" + domain);
+						secondary_contact.put("email_status","predicted");
+						secondary_contact.put("email_confidence","medium");
+						secondary_contact.put("email_permutations",email_perms_s);
+						secondary_contact.put("email_prediction_method","Generated from name + domain pattern");
+					}
+					else if(first_name_s != "")
+					{
+						email_perms_s.add(first_name_s + "@" + domain);
+						secondary_contact.put("email",first_name_s + "@" + domain);
+						secondary_contact.put("email_status","predicted");
+						secondary_contact.put("email_confidence","low");
+						secondary_contact.put("email_permutations",email_perms_s);
+					}
+					else
+					{
+						secondary_contact.put("email",null);
+						secondary_contact.put("email_status","unknown");
+						secondary_contact.put("email_confidence","none");
+					}
+				}
+			}
 		}
 	}
-	// Get email pattern
-	if(contact_map.containsKey("email_pattern_hint"))
+	// If secondary contact is empty, add placeholder
+	if(secondary_has_name == false)
 	{
-		email_pattern = contact_map.get("email_pattern_hint");
+		secondary_contact.put("name",null);
+		secondary_contact.put("job_title",null);
+		secondary_contact.put("company",company_name_str);
+		secondary_contact.put("email",null);
+		secondary_contact.put("email_status","not_found");
+		secondary_contact.put("phone",null);
+		secondary_contact.put("location",null);
+		secondary_contact.put("linkedin_url",null);
+		secondary_contact.put("company_website",website);
+		secondary_contact.put("source_url",null);
+		secondary_contact.put("notes","No secondary contact found");
 	}
 	// Build final contact map
 	contacts_result = Map();
@@ -598,6 +781,10 @@ for each  comp2 in matching_companies
 	if(contact_map.containsKey("email_examples"))
 	{
 		contacts_result.put("email_examples",contact_map.get("email_examples"));
+	}
+	if(contact_map.containsKey("email_pattern_source"))
+	{
+		contacts_result.put("email_pattern_source",contact_map.get("email_pattern_source"));
 	}
 	company_result = Map();
 	company_result.put("company_name",company_name);
