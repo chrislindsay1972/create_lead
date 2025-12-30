@@ -703,6 +703,139 @@ for each  comp2 in matching_companies
 		// MX check failed, continue without it
 		mx_check_note = "MX check skipped (API error)";
 	}
+	// -----------------------------------------
+	// If MX check failed, search for the real email domain
+	// -----------------------------------------
+	email_domain = domain;
+	email_domain_source = "Derived from website";
+	email_domain_corrected = false;
+	if(domain_has_mx == false)
+	{
+		// Search for real email domain using Perplexity
+		company_name_for_search = company_name;
+		if(company_name_for_search == null || company_name_for_search.trim() == "")
+		{
+			company_name_for_search = domain;
+		}
+		prompt_email_domain = "Find the actual email domain used by " + company_name_for_search + " (website: " + website + ").\n\n" + "Search for:\n" + "1. Contact emails on their website (contact page, team page, footer)\n" + "2. Job posting emails (careers@, jobs@, hr@)\n" + "3. Press release contact emails\n" + "4. Support or sales emails\n" + "5. Any public employee emails\n\n" + "Return ONLY JSON:\n" + "{\"email_domain\":\"actual-domain.com\",\"example_emails\":[\"contact@actual-domain.com\"],\"source\":\"where you found this\"}";
+		input_ed = List();
+		user_ed = Map();
+		user_ed.put("role","user");
+		user_ed.put("content",prompt_email_domain);
+		input_ed.add(user_ed);
+		body_ed = Map();
+		body_ed.put("model",MODEL);
+		body_ed.put("messages",input_ed);
+		body_ed.put("temperature",0);
+		resp_ed = null;
+		raw_ed = null;
+		try 
+		{
+			resp_ed = invokeurl
+			[
+				url :"https://api.perplexity.ai/chat/completions"
+				type :POST
+				body:body_ed.toString()
+				headers:headers
+			];
+			if(resp_ed != null && resp_ed.containsKey("choices"))
+			{
+				choices_ed = resp_ed.get("choices");
+				if(choices_ed != null && choices_ed.size() > 0)
+				{
+					first_ed = choices_ed.get(0);
+					if(first_ed != null && first_ed.containsKey("message"))
+					{
+						msg_ed = first_ed.get("message");
+						if(msg_ed != null && msg_ed.containsKey("content"))
+						{
+							raw_ed = msg_ed.get("content");
+						}
+					}
+				}
+			}
+		}
+		catch (e_ed_call)
+		{
+			info "Email domain search failed for " + company_name_for_search;
+		}
+		// Parse the email domain response
+		if(raw_ed != null && raw_ed.trim() != "")
+		{
+			json_ed = raw_ed;
+			try 
+			{
+				s_ed = raw_ed.indexOf("{");
+				e_ed = raw_ed.lastIndexOf("}");
+				if(s_ed >= 0 && e_ed > s_ed)
+				{
+					json_ed = raw_ed.subString(s_ed,e_ed + 1);
+				}
+			}
+			catch (e_slice_ed)
+			{
+				json_ed = raw_ed;
+			}
+			try 
+			{
+				ed_map = json_ed.toMap();
+				found_email_domain = ed_map.get("email_domain");
+				if(found_email_domain != null && (found_email_domain + "").trim() != "" && (found_email_domain + "").trim().toLowerCase() != "null")
+				{
+					new_domain = (found_email_domain + "").trim().toLowerCase();
+					// Remove any @ prefix if present
+					if(new_domain.startsWith("@"))
+					{
+						new_domain = new_domain.subString(1,new_domain.length());
+					}
+					// Verify the new domain has MX records
+					if(new_domain != domain)
+					{
+						try 
+						{
+							mx_check_url_new = "https://dns.google/resolve?name=" + new_domain + "&type=MX";
+							mx_response_new = invokeurl
+							[
+								url :mx_check_url_new
+								type :GET
+							];
+							if(mx_response_new != null && mx_response_new.containsKey("Answer"))
+							{
+								mx_answer_new = mx_response_new.get("Answer");
+								if(mx_answer_new != null && mx_answer_new.size() > 0)
+								{
+									// New domain has MX - use it!
+									email_domain = new_domain;
+									email_domain_corrected = true;
+									domain_has_mx = true;
+									mx_check_note = "Domain corrected and verified (MX found for " + new_domain + ")";
+									// Get source info
+									ed_source = ed_map.get("source");
+									if(ed_source != null && (ed_source + "").trim() != "")
+									{
+										email_domain_source = "Corrected: " + (ed_source + "").trim();
+									}
+									else
+									{
+										email_domain_source = "Corrected via web search";
+									}
+								}
+							}
+						}
+						catch (e_mx_new)
+						{
+							// New domain MX check failed, stick with original
+							info "MX check failed for corrected domain: " + new_domain;
+						}
+					}
+				}
+			}
+			catch (e_parse_ed)
+			{
+				info "Failed to parse email domain JSON";
+			}
+		}
+	}
 	company_name_str = "Unknown Company";
 	if(company_name != null && company_name.trim() != "")
 	{
@@ -1101,14 +1234,14 @@ for each  comp2 in matching_companies
 		email_perms = List();
 		if(first_name != "" && last_name != "")
 		{
-			email_perms.add(first_name + "." + last_name + "@" + domain);
-			email_perms.add(first_name + "@" + domain);
-			email_perms.add(first_name + last_name + "@" + domain);
+			email_perms.add(first_name + "." + last_name + "@" + email_domain);
+			email_perms.add(first_name + "@" + email_domain);
+			email_perms.add(first_name + last_name + "@" + email_domain);
 			first_initial = first_name.subString(0,1);
-			email_perms.add(first_initial + "." + last_name + "@" + domain);
-			email_perms.add(first_initial + last_name + "@" + domain);
-			email_perms.add(last_name + "." + first_name + "@" + domain);
-			primary_contact.put("email",first_name + "." + last_name + "@" + domain);
+			email_perms.add(first_initial + "." + last_name + "@" + email_domain);
+			email_perms.add(first_initial + last_name + "@" + email_domain);
+			email_perms.add(last_name + "." + first_name + "@" + email_domain);
+			primary_contact.put("email",first_name + "." + last_name + "@" + email_domain);
 			primary_contact.put("email_status","predicted");
 			// Set confidence based on MX check
 			if(domain_has_mx == true)
@@ -1125,8 +1258,8 @@ for each  comp2 in matching_companies
 		}
 		else if(first_name != "")
 		{
-			email_perms.add(first_name + "@" + domain);
-			primary_contact.put("email",first_name + "@" + domain);
+			email_perms.add(first_name + "@" + email_domain);
+			primary_contact.put("email",first_name + "@" + email_domain);
 			primary_contact.put("email_status","predicted");
 			if(domain_has_mx == true)
 			{
@@ -1199,13 +1332,13 @@ for each  comp2 in matching_companies
 		email_perms_s = List();
 		if(first_name_s != "" && last_name_s != "")
 		{
-			email_perms_s.add(first_name_s + "." + last_name_s + "@" + domain);
-			email_perms_s.add(first_name_s + "@" + domain);
-			email_perms_s.add(first_name_s + last_name_s + "@" + domain);
+			email_perms_s.add(first_name_s + "." + last_name_s + "@" + email_domain);
+			email_perms_s.add(first_name_s + "@" + email_domain);
+			email_perms_s.add(first_name_s + last_name_s + "@" + email_domain);
 			first_initial_s = first_name_s.subString(0,1);
-			email_perms_s.add(first_initial_s + "." + last_name_s + "@" + domain);
-			email_perms_s.add(first_initial_s + last_name_s + "@" + domain);
-			secondary_contact.put("email",first_name_s + "." + last_name_s + "@" + domain);
+			email_perms_s.add(first_initial_s + "." + last_name_s + "@" + email_domain);
+			email_perms_s.add(first_initial_s + last_name_s + "@" + email_domain);
+			secondary_contact.put("email",first_name_s + "." + last_name_s + "@" + email_domain);
 			secondary_contact.put("email_status","predicted");
 			// Set confidence based on MX check
 			if(domain_has_mx == true)
@@ -1222,8 +1355,8 @@ for each  comp2 in matching_companies
 		}
 		else if(first_name_s != "")
 		{
-			email_perms_s.add(first_name_s + "@" + domain);
-			secondary_contact.put("email",first_name_s + "@" + domain);
+			email_perms_s.add(first_name_s + "@" + email_domain);
+			secondary_contact.put("email",first_name_s + "@" + email_domain);
 			secondary_contact.put("email_status","predicted");
 			if(domain_has_mx == true)
 			{
@@ -1267,6 +1400,9 @@ for each  comp2 in matching_companies
 	company_result.put("company_name",company_name);
 	company_result.put("company_website",website);
 	company_result.put("company_domain",domain);
+	company_result.put("email_domain",email_domain);
+	company_result.put("email_domain_corrected",email_domain_corrected);
+	company_result.put("email_domain_source",email_domain_source);
 	company_result.put("domain_mx_valid",domain_has_mx);
 	company_result.put("domain_mx_note",mx_check_note);
 	company_result.put("discovered_sector",comp2.get("sector"));
