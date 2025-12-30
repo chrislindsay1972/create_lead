@@ -1195,6 +1195,153 @@ for each  comp2 in matching_companies
 		}
 	}
 	// -----------------------------------------
+	// STEP 3: Search for email pattern and specific person emails
+	// -----------------------------------------
+	company_email_pattern = null;
+	pattern_confidence = "none";
+	pattern_source = null;
+	primary_verified_email = null;
+	secondary_verified_email = null;
+	// Only search if we found at least one contact name
+	if(found_primary_name != null || found_secondary_name != null)
+	{
+		// Search for company email pattern and specific person emails
+		search_names = "";
+		if(found_primary_name != null)
+		{
+			search_names = found_primary_name;
+		}
+		if(found_secondary_name != null)
+		{
+			if(search_names != "")
+			{
+				search_names = search_names + ", ";
+			}
+			search_names = search_names + found_secondary_name;
+		}
+		prompt_email_verify = "Find the email pattern and actual email addresses for " + company_name_str + " (domain: " + email_domain + ").\n\n" + "TASK 1 - Find email pattern:\n" + "Search for real email addresses from this company in:\n" + "- Contact pages, job postings, press releases\n" + "- Conference speaker lists, webinar registrations\n" + "- Legal documents, GDPR contacts\n" + "- LinkedIn profiles, GitHub, Twitter bios\n\n" + "Determine the pattern: firstname@, firstname.lastname@, f.lastname@, firstnamelastname@, etc.\n\n" + "TASK 2 - Find specific emails for:\n" + search_names + "\n\n" + "Search for their actual email addresses in public sources.\n\n" + "Return ONLY JSON:\n" + "{\n" + "  \"email_pattern\": \"firstname.lastname\" or \"firstname\" or \"f.lastname\" or null,\n" + "  \"pattern_examples\": [\"real@email.com\"],\n" + "  \"pattern_source\": \"where you found these\",\n" + "  \"person_emails\": [\n" + "    {\"name\": \"Person Name\", \"email\": \"verified@email.com\", \"source\": \"where found\"}\n" + "  ]\n" + "}";
+		input_ev = List();
+		user_ev = Map();
+		user_ev.put("role","user");
+		user_ev.put("content",prompt_email_verify);
+		input_ev.add(user_ev);
+		body_ev = Map();
+		body_ev.put("model",MODEL);
+		body_ev.put("messages",input_ev);
+		body_ev.put("temperature",0);
+		resp_ev = null;
+		raw_ev = null;
+		try 
+		{
+			resp_ev = invokeurl
+			[
+				url :"https://api.perplexity.ai/chat/completions"
+				type :POST
+				body:body_ev.toString()
+				headers:headers
+			];
+			if(resp_ev != null && resp_ev.containsKey("choices"))
+			{
+				choices_ev = resp_ev.get("choices");
+				if(choices_ev != null && choices_ev.size() > 0)
+				{
+					first_ev = choices_ev.get(0);
+					if(first_ev != null && first_ev.containsKey("message"))
+					{
+						msg_ev = first_ev.get("message");
+						if(msg_ev != null && msg_ev.containsKey("content"))
+						{
+							raw_ev = msg_ev.get("content");
+						}
+					}
+				}
+			}
+		}
+		catch (e_ev_call)
+		{
+			info "Email verification search failed for " + company_name_str;
+		}
+		// Parse email pattern response
+		if(raw_ev != null && raw_ev.trim() != "")
+		{
+			json_ev = raw_ev;
+			try 
+			{
+				s_ev = raw_ev.indexOf("{");
+				e_ev = raw_ev.lastIndexOf("}");
+				if(s_ev >= 0 && e_ev > s_ev)
+				{
+					json_ev = raw_ev.subString(s_ev,e_ev + 1);
+				}
+			}
+			catch (e_slice_ev)
+			{
+				json_ev = raw_ev;
+			}
+			try 
+			{
+				ev_map = json_ev.toMap();
+				// Get email pattern
+				found_pattern = ev_map.get("email_pattern");
+				if(found_pattern != null && (found_pattern + "").trim() != "" && (found_pattern + "").trim().toLowerCase() != "null")
+				{
+					company_email_pattern = (found_pattern + "").trim().toLowerCase();
+					pattern_confidence = "high";
+				}
+				// Get pattern source
+				p_source = ev_map.get("pattern_source");
+				if(p_source != null && (p_source + "").trim() != "")
+				{
+					pattern_source = (p_source + "").trim();
+				}
+				// Get verified person emails
+				person_emails = ev_map.get("person_emails");
+				if(person_emails != null)
+				{
+					for each  pe in person_emails
+					{
+						if(pe != null)
+						{
+							pe_name = pe.get("name");
+							pe_email = pe.get("email");
+							pe_source = pe.get("source");
+							if(pe_name != null && pe_email != null)
+							{
+								pe_name_lower = (pe_name + "").trim().toLowerCase();
+								pe_email_str = (pe_email + "").trim().toLowerCase();
+								// Check if email looks valid (contains @ and domain)
+								if(pe_email_str.indexOf("@") > 0)
+								{
+									// Match to primary or secondary contact
+									if(found_primary_name != null)
+									{
+										primary_name_lower = found_primary_name.toLowerCase();
+										if(pe_name_lower.indexOf(primary_name_lower) >= 0 || primary_name_lower.indexOf(pe_name_lower) >= 0)
+										{
+											primary_verified_email = pe_email_str;
+										}
+									}
+									if(found_secondary_name != null)
+									{
+										secondary_name_lower = found_secondary_name.toLowerCase();
+										if(pe_name_lower.indexOf(secondary_name_lower) >= 0 || secondary_name_lower.indexOf(pe_name_lower) >= 0)
+										{
+											secondary_verified_email = pe_email_str;
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			catch (e_parse_ev)
+			{
+				info "Failed to parse email verification JSON for " + company_name_str;
+			}
+		}
+	}
+	// -----------------------------------------
 	// Build contact objects with email prediction
 	// -----------------------------------------
 	primary_contact = Map();
@@ -1208,7 +1355,7 @@ for each  comp2 in matching_companies
 		primary_contact.put("source_url",found_source);
 		primary_contact.put("phone",null);
 		primary_contact.put("location",null);
-		// Generate email predictions
+		// Parse name for email generation
 		full_name = found_primary_name.trim().toLowerCase();
 		first_name = "";
 		last_name = "";
@@ -1231,9 +1378,95 @@ for each  comp2 in matching_companies
 		{
 			first_name = full_name;
 		}
+		// -----------------------------------------
+		// Email assignment priority:
+		// 1. Verified email (found in public sources)
+		// 2. Pattern-based email (company pattern known)
+		// 3. Default prediction (firstname.lastname@)
+		// -----------------------------------------
 		email_perms = List();
-		if(first_name != "" && last_name != "")
+		if(primary_verified_email != null)
 		{
+			// PRIORITY 1: Use verified email
+			primary_contact.put("email",primary_verified_email);
+			primary_contact.put("email_status","verified");
+			primary_contact.put("email_confidence","high");
+			primary_contact.put("domain_status","Email found in public source");
+			primary_contact.put("email_source",pattern_source);
+			// Still generate permutations for reference
+			if(first_name != "" && last_name != "")
+			{
+				email_perms.add(first_name + "." + last_name + "@" + email_domain);
+				email_perms.add(first_name + "@" + email_domain);
+				email_perms.add(first_name + last_name + "@" + email_domain);
+				first_initial = first_name.subString(0,1);
+				email_perms.add(first_initial + "." + last_name + "@" + email_domain);
+				email_perms.add(first_initial + last_name + "@" + email_domain);
+			}
+			primary_contact.put("email_permutations",email_perms);
+		}
+		else if(company_email_pattern != null && first_name != "" && last_name != "")
+		{
+			// PRIORITY 2: Use company email pattern
+			pattern_email = "";
+			if(company_email_pattern == "firstname.lastname" || company_email_pattern == "first.last")
+			{
+				pattern_email = first_name + "." + last_name + "@" + email_domain;
+			}
+			else if(company_email_pattern == "firstname" || company_email_pattern == "first")
+			{
+				pattern_email = first_name + "@" + email_domain;
+			}
+			else if(company_email_pattern == "f.lastname" || company_email_pattern == "f.last")
+			{
+				first_initial = first_name.subString(0,1);
+				pattern_email = first_initial + "." + last_name + "@" + email_domain;
+			}
+			else if(company_email_pattern == "flastname" || company_email_pattern == "flast")
+			{
+				first_initial = first_name.subString(0,1);
+				pattern_email = first_initial + last_name + "@" + email_domain;
+			}
+			else if(company_email_pattern == "firstnamelastname" || company_email_pattern == "firstlast")
+			{
+				pattern_email = first_name + last_name + "@" + email_domain;
+			}
+			else if(company_email_pattern == "lastname.firstname" || company_email_pattern == "last.first")
+			{
+				pattern_email = last_name + "." + first_name + "@" + email_domain;
+			}
+			else
+			{
+				// Unknown pattern, default to firstname.lastname
+				pattern_email = first_name + "." + last_name + "@" + email_domain;
+			}
+			primary_contact.put("email",pattern_email);
+			primary_contact.put("email_status","pattern-matched");
+			if(domain_has_mx == true)
+			{
+				primary_contact.put("email_confidence","high");
+				primary_contact.put("domain_status","Pattern verified: " + company_email_pattern + " (MX valid)");
+			}
+			else
+			{
+				primary_contact.put("email_confidence","medium");
+				primary_contact.put("domain_status","Pattern: " + company_email_pattern + " (MX not verified)");
+			}
+			primary_contact.put("email_pattern_used",company_email_pattern);
+			primary_contact.put("email_pattern_source",pattern_source);
+			// Generate all permutations
+			email_perms.add(first_name + "." + last_name + "@" + email_domain);
+			email_perms.add(first_name + "@" + email_domain);
+			email_perms.add(first_name + last_name + "@" + email_domain);
+			first_initial = first_name.subString(0,1);
+			email_perms.add(first_initial + "." + last_name + "@" + email_domain);
+			email_perms.add(first_initial + last_name + "@" + email_domain);
+			email_perms.add(last_name + "." + first_name + "@" + email_domain);
+			primary_contact.put("email_permutations",email_perms);
+		}
+		else if(first_name != "" && last_name != "")
+		{
+			// PRIORITY 3: Default prediction (firstname.lastname)
 			email_perms.add(first_name + "." + last_name + "@" + email_domain);
 			email_perms.add(first_name + "@" + email_domain);
 			email_perms.add(first_name + last_name + "@" + email_domain);
@@ -1243,11 +1476,10 @@ for each  comp2 in matching_companies
 			email_perms.add(last_name + "." + first_name + "@" + email_domain);
 			primary_contact.put("email",first_name + "." + last_name + "@" + email_domain);
 			primary_contact.put("email_status","predicted");
-			// Set confidence based on MX check
 			if(domain_has_mx == true)
 			{
-				primary_contact.put("email_confidence","medium-verified");
-				primary_contact.put("domain_status","MX verified");
+				primary_contact.put("email_confidence","medium");
+				primary_contact.put("domain_status","MX verified (pattern unknown)");
 			}
 			else
 			{
@@ -1306,7 +1538,7 @@ for each  comp2 in matching_companies
 		secondary_contact.put("source_url",found_source);
 		secondary_contact.put("phone",null);
 		secondary_contact.put("location",null);
-		// Generate email predictions for secondary
+		// Parse name for email generation
 		full_name_s = found_secondary_name.trim().toLowerCase();
 		first_name_s = "";
 		last_name_s = "";
@@ -1329,9 +1561,92 @@ for each  comp2 in matching_companies
 		{
 			first_name_s = full_name_s;
 		}
+		// -----------------------------------------
+		// Email assignment priority (secondary):
+		// 1. Verified email (found in public sources)
+		// 2. Pattern-based email (company pattern known)
+		// 3. Default prediction (firstname.lastname@)
+		// -----------------------------------------
 		email_perms_s = List();
-		if(first_name_s != "" && last_name_s != "")
+		if(secondary_verified_email != null)
 		{
+			// PRIORITY 1: Use verified email
+			secondary_contact.put("email",secondary_verified_email);
+			secondary_contact.put("email_status","verified");
+			secondary_contact.put("email_confidence","high");
+			secondary_contact.put("domain_status","Email found in public source");
+			secondary_contact.put("email_source",pattern_source);
+			if(first_name_s != "" && last_name_s != "")
+			{
+				email_perms_s.add(first_name_s + "." + last_name_s + "@" + email_domain);
+				email_perms_s.add(first_name_s + "@" + email_domain);
+				email_perms_s.add(first_name_s + last_name_s + "@" + email_domain);
+				first_initial_s = first_name_s.subString(0,1);
+				email_perms_s.add(first_initial_s + "." + last_name_s + "@" + email_domain);
+				email_perms_s.add(first_initial_s + last_name_s + "@" + email_domain);
+			}
+			secondary_contact.put("email_permutations",email_perms_s);
+		}
+		else if(company_email_pattern != null && first_name_s != "" && last_name_s != "")
+		{
+			// PRIORITY 2: Use company email pattern
+			pattern_email_s = "";
+			if(company_email_pattern == "firstname.lastname" || company_email_pattern == "first.last")
+			{
+				pattern_email_s = first_name_s + "." + last_name_s + "@" + email_domain;
+			}
+			else if(company_email_pattern == "firstname" || company_email_pattern == "first")
+			{
+				pattern_email_s = first_name_s + "@" + email_domain;
+			}
+			else if(company_email_pattern == "f.lastname" || company_email_pattern == "f.last")
+			{
+				first_initial_s = first_name_s.subString(0,1);
+				pattern_email_s = first_initial_s + "." + last_name_s + "@" + email_domain;
+			}
+			else if(company_email_pattern == "flastname" || company_email_pattern == "flast")
+			{
+				first_initial_s = first_name_s.subString(0,1);
+				pattern_email_s = first_initial_s + last_name_s + "@" + email_domain;
+			}
+			else if(company_email_pattern == "firstnamelastname" || company_email_pattern == "firstlast")
+			{
+				pattern_email_s = first_name_s + last_name_s + "@" + email_domain;
+			}
+			else if(company_email_pattern == "lastname.firstname" || company_email_pattern == "last.first")
+			{
+				pattern_email_s = last_name_s + "." + first_name_s + "@" + email_domain;
+			}
+			else
+			{
+				pattern_email_s = first_name_s + "." + last_name_s + "@" + email_domain;
+			}
+			secondary_contact.put("email",pattern_email_s);
+			secondary_contact.put("email_status","pattern-matched");
+			if(domain_has_mx == true)
+			{
+				secondary_contact.put("email_confidence","high");
+				secondary_contact.put("domain_status","Pattern verified: " + company_email_pattern + " (MX valid)");
+			}
+			else
+			{
+				secondary_contact.put("email_confidence","medium");
+				secondary_contact.put("domain_status","Pattern: " + company_email_pattern + " (MX not verified)");
+			}
+			secondary_contact.put("email_pattern_used",company_email_pattern);
+			secondary_contact.put("email_pattern_source",pattern_source);
+			email_perms_s.add(first_name_s + "." + last_name_s + "@" + email_domain);
+			email_perms_s.add(first_name_s + "@" + email_domain);
+			email_perms_s.add(first_name_s + last_name_s + "@" + email_domain);
+			first_initial_s = first_name_s.subString(0,1);
+			email_perms_s.add(first_initial_s + "." + last_name_s + "@" + email_domain);
+			email_perms_s.add(first_initial_s + last_name_s + "@" + email_domain);
+			email_perms_s.add(last_name_s + "." + first_name_s + "@" + email_domain);
+			secondary_contact.put("email_permutations",email_perms_s);
+		}
+		else if(first_name_s != "" && last_name_s != "")
+		{
+			// PRIORITY 3: Default prediction
 			email_perms_s.add(first_name_s + "." + last_name_s + "@" + email_domain);
 			email_perms_s.add(first_name_s + "@" + email_domain);
 			email_perms_s.add(first_name_s + last_name_s + "@" + email_domain);
@@ -1340,11 +1655,10 @@ for each  comp2 in matching_companies
 			email_perms_s.add(first_initial_s + last_name_s + "@" + email_domain);
 			secondary_contact.put("email",first_name_s + "." + last_name_s + "@" + email_domain);
 			secondary_contact.put("email_status","predicted");
-			// Set confidence based on MX check
 			if(domain_has_mx == true)
 			{
-				secondary_contact.put("email_confidence","medium-verified");
-				secondary_contact.put("domain_status","MX verified");
+				secondary_contact.put("email_confidence","medium");
+				secondary_contact.put("domain_status","MX verified (pattern unknown)");
 			}
 			else
 			{
@@ -1403,6 +1717,9 @@ for each  comp2 in matching_companies
 	company_result.put("email_domain",email_domain);
 	company_result.put("email_domain_corrected",email_domain_corrected);
 	company_result.put("email_domain_source",email_domain_source);
+	company_result.put("email_pattern",company_email_pattern);
+	company_result.put("email_pattern_confidence",pattern_confidence);
+	company_result.put("email_pattern_source",pattern_source);
 	company_result.put("domain_mx_valid",domain_has_mx);
 	company_result.put("domain_mx_note",mx_check_note);
 	company_result.put("discovered_sector",comp2.get("sector"));
