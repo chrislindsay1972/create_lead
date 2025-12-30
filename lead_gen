@@ -653,6 +653,56 @@ for each  comp2 in matching_companies
 		domain_lc = domain_lc.subString(4,domain_lc.length());
 	}
 	domain = domain_lc;
+	// -----------------------------------------
+	// MX Record Check - Verify domain can receive email
+	// Uses Google's free DNS API
+	// -----------------------------------------
+	domain_has_mx = false;
+	mx_check_note = "";
+	try 
+	{
+		mx_check_url = "https://dns.google/resolve?name=" + domain + "&type=MX";
+		mx_response = invokeurl
+		[
+			url :mx_check_url
+			type :GET
+		];
+		if(mx_response != null)
+		{
+			if(mx_response.containsKey("Answer"))
+			{
+				mx_answer = mx_response.get("Answer");
+				if(mx_answer != null && mx_answer.size() > 0)
+				{
+					domain_has_mx = true;
+					mx_check_note = "Domain verified (MX record found)";
+				}
+			}
+			if(domain_has_mx == false && mx_response.containsKey("Status"))
+			{
+				mx_status = mx_response.get("Status");
+				if(mx_status == 0)
+				{
+					// Status 0 means no error but no MX records
+					mx_check_note = "Warning: No MX record found - domain may not accept email";
+				}
+				else if(mx_status == 3)
+				{
+					// NXDOMAIN - domain doesn't exist
+					mx_check_note = "Warning: Domain does not exist";
+				}
+				else
+				{
+					mx_check_note = "Warning: Could not verify MX record";
+				}
+			}
+		}
+	}
+	catch (e_mx)
+	{
+		// MX check failed, continue without it
+		mx_check_note = "MX check skipped (API error)";
+	}
 	company_name_str = "Unknown Company";
 	if(company_name != null && company_name.trim() != "")
 	{
@@ -1060,7 +1110,17 @@ for each  comp2 in matching_companies
 			email_perms.add(last_name + "." + first_name + "@" + domain);
 			primary_contact.put("email",first_name + "." + last_name + "@" + domain);
 			primary_contact.put("email_status","predicted");
-			primary_contact.put("email_confidence","medium");
+			// Set confidence based on MX check
+			if(domain_has_mx == true)
+			{
+				primary_contact.put("email_confidence","medium-verified");
+				primary_contact.put("domain_status","MX verified");
+			}
+			else
+			{
+				primary_contact.put("email_confidence","low");
+				primary_contact.put("domain_status",mx_check_note);
+			}
 			primary_contact.put("email_permutations",email_perms);
 		}
 		else if(first_name != "")
@@ -1068,7 +1128,16 @@ for each  comp2 in matching_companies
 			email_perms.add(first_name + "@" + domain);
 			primary_contact.put("email",first_name + "@" + domain);
 			primary_contact.put("email_status","predicted");
-			primary_contact.put("email_confidence","low");
+			if(domain_has_mx == true)
+			{
+				primary_contact.put("email_confidence","low-verified");
+				primary_contact.put("domain_status","MX verified (but only first name)");
+			}
+			else
+			{
+				primary_contact.put("email_confidence","very-low");
+				primary_contact.put("domain_status",mx_check_note);
+			}
 			primary_contact.put("email_permutations",email_perms);
 		}
 		else
@@ -1138,7 +1207,17 @@ for each  comp2 in matching_companies
 			email_perms_s.add(first_initial_s + last_name_s + "@" + domain);
 			secondary_contact.put("email",first_name_s + "." + last_name_s + "@" + domain);
 			secondary_contact.put("email_status","predicted");
-			secondary_contact.put("email_confidence","medium");
+			// Set confidence based on MX check
+			if(domain_has_mx == true)
+			{
+				secondary_contact.put("email_confidence","medium-verified");
+				secondary_contact.put("domain_status","MX verified");
+			}
+			else
+			{
+				secondary_contact.put("email_confidence","low");
+				secondary_contact.put("domain_status",mx_check_note);
+			}
 			secondary_contact.put("email_permutations",email_perms_s);
 		}
 		else if(first_name_s != "")
@@ -1146,7 +1225,16 @@ for each  comp2 in matching_companies
 			email_perms_s.add(first_name_s + "@" + domain);
 			secondary_contact.put("email",first_name_s + "@" + domain);
 			secondary_contact.put("email_status","predicted");
-			secondary_contact.put("email_confidence","low");
+			if(domain_has_mx == true)
+			{
+				secondary_contact.put("email_confidence","low-verified");
+				secondary_contact.put("domain_status","MX verified (but only first name)");
+			}
+			else
+			{
+				secondary_contact.put("email_confidence","very-low");
+				secondary_contact.put("domain_status",mx_check_note);
+			}
 			secondary_contact.put("email_permutations",email_perms_s);
 		}
 		else
@@ -1179,6 +1267,8 @@ for each  comp2 in matching_companies
 	company_result.put("company_name",company_name);
 	company_result.put("company_website",website);
 	company_result.put("company_domain",domain);
+	company_result.put("domain_mx_valid",domain_has_mx);
+	company_result.put("domain_mx_note",mx_check_note);
 	company_result.put("discovered_sector",comp2.get("sector"));
 	company_result.put("employee_size",comp2.get("employee_size"));
 	company_result.put("location",comp2.get("location"));
