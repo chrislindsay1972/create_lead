@@ -45,615 +45,6 @@ headers.put("Authorization","Bearer " + PERPLEXITY_API_KEY);
 headers.put("Content-Type","application/json");
 
 // -----------------------------------------
-// MULTI-SIGNAL EMAIL VALIDATION FUNCTIONS
-// -----------------------------------------
-
-// Function: Validate email syntax (basic check in Deluge)
-validateEmailSyntax = define(email_str)
-{
-	valid = false;
-	if(email_str != null && email_str.trim() != "")
-	{
-		e = email_str.trim().toLowerCase();
-		atPos = e.indexOf("@");
-		if(atPos > 0)
-		{
-			afterAt = e.subString(atPos + 1, e.length());
-			secondAt = afterAt.indexOf("@");
-			if(secondAt < 0)
-			{
-				dotPos = afterAt.indexOf(".");
-				if(dotPos > 0 && dotPos < afterAt.length() - 1)
-				{
-					valid = true;
-				}
-			}
-		}
-	}
-	return valid;
-};
-
-// Function: Check MX records via Google DNS API
-checkMxRecords = define(domain_str)
-{
-	mx_result = Map();
-	mx_result.put("mx_found", false);
-	mx_result.put("mx_records", List());
-	
-	if(domain_str == null || domain_str.trim() == "")
-	{
-		return mx_result;
-	}
-	
-	dns_url = "https://dns.google/resolve?name=" + domain_str.trim() + "&type=MX";
-	
-	try
-	{
-		dns_resp = invokeurl
-		[
-			url: dns_url
-			type: GET
-		];
-		
-		if(dns_resp != null && dns_resp.containsKey("Answer"))
-		{
-			answers = dns_resp.get("Answer");
-			if(answers != null && answers.size() > 0)
-			{
-				mx_result.put("mx_found", true);
-				mx_list = List();
-				for each ans in answers
-				{
-					if(ans != null && ans.containsKey("data"))
-					{
-						mx_list.add(ans.get("data") + "");
-					}
-				}
-				mx_result.put("mx_records", mx_list);
-			}
-		}
-	}
-	catch(e_dns)
-	{
-		// DNS lookup failed
-	}
-	
-	return mx_result;
-};
-
-// Function: Detect email pattern (firstname.lastname, f.lastname, etc)
-detectEmailPattern = define(email_str)
-{
-	pattern = "unknown";
-	if(email_str == null || email_str.trim() == "")
-	{
-		return pattern;
-	}
-	
-	e = email_str.trim().toLowerCase();
-	atPos = e.indexOf("@");
-	if(atPos <= 0)
-	{
-		return pattern;
-	}
-	
-	local_part = e.subString(0, atPos);
-	
-	// Check for firstname.lastname pattern
-	dotPos = local_part.indexOf(".");
-	if(dotPos > 0 && dotPos < local_part.length() - 1)
-	{
-		// Has a dot in the middle
-		beforeDot = local_part.subString(0, dotPos);
-		afterDot = local_part.subString(dotPos + 1, local_part.length());
-		
-		// Check if it's f.lastname (single char before dot)
-		if(beforeDot.length() == 1)
-		{
-			pattern = "f.lastname";
-		}
-		else
-		{
-			pattern = "firstname.lastname";
-		}
-	}
-	else
-	{
-		// No dot - could be firstname, flastname, or firstnamelastname
-		underscorePos = local_part.indexOf("_");
-		if(underscorePos > 0)
-		{
-			pattern = "firstname_lastname";
-		}
-		else if(local_part.length() <= 15)
-		{
-			pattern = "firstname_or_combined";
-		}
-	}
-	
-	return pattern;
-};
-
-// Function: Extract probable name from email
-extractNameFromEmail = define(email_str)
-{
-	name_result = Map();
-	name_result.put("first_name", null);
-	name_result.put("last_name", null);
-	name_result.put("full_name", null);
-	
-	if(email_str == null || email_str.trim() == "")
-	{
-		return name_result;
-	}
-	
-	e = email_str.trim().toLowerCase();
-	atPos = e.indexOf("@");
-	if(atPos <= 0)
-	{
-		return name_result;
-	}
-	
-	local_part = e.subString(0, atPos);
-	
-	// Check for dot separator
-	dotPos = local_part.indexOf(".");
-	if(dotPos > 0 && dotPos < local_part.length() - 1)
-	{
-		first = local_part.subString(0, dotPos);
-		last = local_part.subString(dotPos + 1, local_part.length());
-		
-		// Capitalize first letter (manual since no built-in title case)
-		if(first.length() > 0)
-		{
-			first_cap = first.subString(0, 1).toUpperCase() + first.subString(1, first.length());
-			name_result.put("first_name", first_cap);
-		}
-		if(last.length() > 0)
-		{
-			last_cap = last.subString(0, 1).toUpperCase() + last.subString(1, last.length());
-			name_result.put("last_name", last_cap);
-		}
-		
-		if(name_result.get("first_name") != null && name_result.get("last_name") != null)
-		{
-			name_result.put("full_name", name_result.get("first_name") + " " + name_result.get("last_name"));
-		}
-	}
-	
-	// Check for underscore separator
-	underscorePos = local_part.indexOf("_");
-	if(underscorePos > 0 && underscorePos < local_part.length() - 1 && name_result.get("full_name") == null)
-	{
-		first = local_part.subString(0, underscorePos);
-		last = local_part.subString(underscorePos + 1, local_part.length());
-		
-		if(first.length() > 0)
-		{
-			first_cap = first.subString(0, 1).toUpperCase() + first.subString(1, first.length());
-			name_result.put("first_name", first_cap);
-		}
-		if(last.length() > 0)
-		{
-			last_cap = last.subString(0, 1).toUpperCase() + last.subString(1, last.length());
-			name_result.put("last_name", last_cap);
-		}
-		
-		if(name_result.get("first_name") != null && name_result.get("last_name") != null)
-		{
-			name_result.put("full_name", name_result.get("first_name") + " " + name_result.get("last_name"));
-		}
-	}
-	
-	return name_result;
-};
-
-// Function: Check Gravatar (email has been used somewhere)
-checkGravatar = define(email_str)
-{
-	gravatar_result = Map();
-	gravatar_result.put("has_gravatar", false);
-	gravatar_result.put("confidence_boost", 0);
-	
-	if(email_str == null || email_str.trim() == "")
-	{
-		return gravatar_result;
-	}
-	
-	// Gravatar uses MD5 hash - we can check via their API
-	// d=404 returns 404 if no custom gravatar exists
-	email_clean = email_str.trim().toLowerCase();
-	
-	// Zoho Deluge has built-in MD5 function
-	email_hash = email_clean.toMD5Hash();
-	
-	gravatar_url = "https://www.gravatar.com/avatar/" + email_hash + "?d=404";
-	
-	try
-	{
-		// Just check if URL returns 200 or 404
-		gravatar_resp = invokeurl
-		[
-			url: gravatar_url
-			type: GET
-		];
-		
-		// If we get here without error, gravatar exists
-		gravatar_result.put("has_gravatar", true);
-		gravatar_result.put("confidence_boost", 15);
-		gravatar_result.put("profile_url", "https://www.gravatar.com/" + email_hash);
-	}
-	catch(e_gravatar)
-	{
-		// 404 or error means no gravatar (which is fine, doesn't mean invalid)
-	}
-	
-	return gravatar_result;
-};
-
-// Function: Validate via LinkedIn/Web search using Perplexity
-validateViaWebSearch = define(email_str, person_name, company_name, job_title, api_headers)
-{
-	web_result = Map();
-	web_result.put("searched", false);
-	web_result.put("person_verified", false);
-	web_result.put("linkedin_found", false);
-	web_result.put("linkedin_url", null);
-	web_result.put("email_found_publicly", false);
-	web_result.put("company_page_found", false);
-	web_result.put("confidence_boost", 0);
-	web_result.put("evidence", List());
-	
-	if(person_name == null || person_name.trim() == "")
-	{
-		return web_result;
-	}
-	if(company_name == null || company_name.trim() == "")
-	{
-		return web_result;
-	}
-	
-	// Build verification prompt
-	prompt = "Search the web to verify if this person and email are legitimate:\n\n";
-	prompt = prompt + "Email: " + email_str + "\n";
-	prompt = prompt + "Name: " + person_name + "\n";
-	prompt = prompt + "Company: " + company_name + "\n";
-	if(job_title != null && job_title.trim() != "")
-	{
-		prompt = prompt + "Job Title: " + job_title + "\n";
-	}
-	prompt = prompt + "\nPlease search for:\n";
-	prompt = prompt + "1. LinkedIn profile for " + person_name + " at " + company_name + "\n";
-	prompt = prompt + "2. The exact email \"" + email_str + "\" appearing on any public webpage\n";
-	prompt = prompt + "3. " + person_name + " mentioned on " + company_name + "'s website (team page, about page)\n";
-	prompt = prompt + "4. Any news articles mentioning this person at this company\n\n";
-	prompt = prompt + "Return ONLY a valid JSON object with no markdown:\n";
-	prompt = prompt + "{\n";
-	prompt = prompt + "  \"person_exists_at_company\": true,\n";
-	prompt = prompt + "  \"linkedin_profile_found\": true,\n";
-	prompt = prompt + "  \"linkedin_url\": \"https://linkedin.com/in/example\",\n";
-	prompt = prompt + "  \"email_found_publicly\": false,\n";
-	prompt = prompt + "  \"email_source_url\": null,\n";
-	prompt = prompt + "  \"company_page_mention\": true,\n";
-	prompt = prompt + "  \"company_page_url\": \"https://company.com/team\",\n";
-	prompt = prompt + "  \"confidence\": \"high\",\n";
-	prompt = prompt + "  \"notes\": \"Found on LinkedIn and company about page\"\n";
-	prompt = prompt + "}\n";
-	
-	input_items = List();
-	user_item = Map();
-	user_item.put("role", "user");
-	user_item.put("content", prompt);
-	input_items.add(user_item);
-	
-	body = Map();
-	body.put("model", "sonar");
-	body.put("messages", input_items);
-	body.put("temperature", 0);
-	
-	try
-	{
-		resp = invokeurl
-		[
-			url: "https://api.perplexity.ai/chat/completions"
-			type: POST
-			body: body.toString()
-			headers: api_headers
-		];
-		
-		if(resp != null && resp.containsKey("choices"))
-		{
-			choices = resp.get("choices");
-			if(choices != null && choices.size() > 0)
-			{
-				first_choice = choices.get(0);
-				if(first_choice != null && first_choice.containsKey("message"))
-				{
-					message = first_choice.get("message");
-					if(message != null && message.containsKey("content"))
-					{
-						raw_content = message.get("content");
-						
-						// Extract JSON
-						json_str = raw_content;
-						s_idx = raw_content.indexOf("{");
-						e_idx = raw_content.lastIndexOf("}");
-						if(s_idx >= 0 && e_idx > s_idx)
-						{
-							json_str = raw_content.subString(s_idx, e_idx + 1);
-						}
-						
-						web_data = json_str.toMap();
-						web_result.put("searched", true);
-						
-						evidence_list = List();
-						boost = 0;
-						
-						// Check person exists at company
-						if(web_data.containsKey("person_exists_at_company"))
-						{
-							if(web_data.get("person_exists_at_company") == true)
-							{
-								web_result.put("person_verified", true);
-								boost = boost + 20;
-								evidence_list.add("Web search confirms " + person_name + " works at " + company_name);
-							}
-						}
-						
-						// Check LinkedIn
-						if(web_data.containsKey("linkedin_profile_found"))
-						{
-							if(web_data.get("linkedin_profile_found") == true)
-							{
-								web_result.put("linkedin_found", true);
-								boost = boost + 15;
-								li_url = web_data.get("linkedin_url");
-								if(li_url != null)
-								{
-									web_result.put("linkedin_url", li_url);
-									evidence_list.add("LinkedIn profile: " + li_url);
-								}
-								else
-								{
-									evidence_list.add("LinkedIn profile found");
-								}
-							}
-						}
-						
-						// Check if email found publicly
-						if(web_data.containsKey("email_found_publicly"))
-						{
-							if(web_data.get("email_found_publicly") == true)
-							{
-								web_result.put("email_found_publicly", true);
-								boost = boost + 25;
-								src_url = web_data.get("email_source_url");
-								if(src_url != null)
-								{
-									evidence_list.add("Email found at: " + src_url);
-								}
-								else
-								{
-									evidence_list.add("Email found publicly on web");
-								}
-							}
-						}
-						
-						// Check company page
-						if(web_data.containsKey("company_page_mention"))
-						{
-							if(web_data.get("company_page_mention") == true)
-							{
-								web_result.put("company_page_found", true);
-								boost = boost + 15;
-								cp_url = web_data.get("company_page_url");
-								if(cp_url != null)
-								{
-									evidence_list.add("Found on company website: " + cp_url);
-								}
-								else
-								{
-									evidence_list.add("Person mentioned on company website");
-								}
-							}
-						}
-						
-						web_result.put("confidence_boost", boost);
-						web_result.put("evidence", evidence_list);
-						
-						if(web_data.containsKey("notes"))
-						{
-							web_result.put("notes", web_data.get("notes"));
-						}
-					}
-				}
-			}
-		}
-	}
-	catch(e_web)
-	{
-		web_result.put("error", "Web search failed: " + e_web);
-	}
-	
-	return web_result;
-};
-
-// Function: MAIN EMAIL VALIDATION - combines all signals
-validateEmailMultiSignal = define(email_str, person_name, company_name, job_title, known_emails, api_headers)
-{
-	result = Map();
-	result.put("email", email_str);
-	result.put("syntax_valid", false);
-	result.put("mx_found", false);
-	result.put("confidence_score", 0);
-	result.put("confidence_level", "low");
-	result.put("signals", Map());
-	result.put("evidence", List());
-	result.put("recommendation", "");
-	
-	if(email_str == null || email_str.trim() == "")
-	{
-		result.put("recommendation", "Empty email address");
-		return result;
-	}
-	
-	email_clean = email_str.trim().toLowerCase();
-	result.put("email", email_clean);
-	
-	evidence_list = List();
-	score = 0;
-	signals = Map();
-	
-	// ===== SIGNAL 1: Syntax validation =====
-	syntax_ok = validateEmailSyntax(email_clean);
-	result.put("syntax_valid", syntax_ok);
-	signals.put("syntax", Map());
-	signals.get("syntax").put("valid", syntax_ok);
-	
-	if(syntax_ok == false)
-	{
-		result.put("recommendation", "Invalid email syntax");
-		result.put("signals", signals);
-		return result;
-	}
-	
-	score = score + 10;
-	evidence_list.add("Valid email syntax");
-	
-	// Extract domain
-	atPos = email_clean.indexOf("@");
-	domain = email_clean.subString(atPos + 1, email_clean.length());
-	
-	// ===== SIGNAL 2: MX Record check =====
-	mx_check = checkMxRecords(domain);
-	result.put("mx_found", mx_check.get("mx_found"));
-	signals.put("mx_records", mx_check);
-	
-	if(mx_check.get("mx_found") == true)
-	{
-		score = score + 15;
-		evidence_list.add("Domain has valid MX records");
-	}
-	else
-	{
-		result.put("confidence_score", score);
-		result.put("confidence_level", "low");
-		result.put("evidence", evidence_list);
-		result.put("signals", signals);
-		result.put("recommendation", "Domain has no mail servers - email likely invalid");
-		return result;
-	}
-	
-	// ===== SIGNAL 3: Email pattern analysis =====
-	pattern = detectEmailPattern(email_clean);
-	signals.put("pattern", Map());
-	signals.get("pattern").put("detected", pattern);
-	
-	// Professional patterns get a boost
-	if(pattern == "firstname.lastname" || pattern == "f.lastname" || pattern == "firstname_lastname")
-	{
-		score = score + 5;
-		evidence_list.add("Email follows professional '" + pattern + "' pattern");
-	}
-	
-	// ===== SIGNAL 4: Name extraction and matching =====
-	name_extracted = extractNameFromEmail(email_clean);
-	signals.put("name_extraction", name_extracted);
-	
-	if(person_name != null && person_name.trim() != "")
-	{
-		if(name_extracted.get("full_name") != null)
-		{
-			extracted_name = name_extracted.get("full_name").toLowerCase();
-			provided_name = person_name.trim().toLowerCase();
-			
-			if(extracted_name == provided_name)
-			{
-				score = score + 25;
-				evidence_list.add("Email name matches provided name: " + person_name);
-			}
-			else
-			{
-				// Check partial match (first name)
-				if(name_extracted.get("first_name") != null)
-				{
-					first_lower = name_extracted.get("first_name").toLowerCase();
-					if(provided_name.indexOf(first_lower) >= 0)
-					{
-						score = score + 15;
-						evidence_list.add("Email first name matches: " + name_extracted.get("first_name"));
-					}
-				}
-			}
-		}
-	}
-	
-	// ===== SIGNAL 5: Gravatar check =====
-	gravatar_check = checkGravatar(email_clean);
-	signals.put("gravatar", gravatar_check);
-	
-	if(gravatar_check.get("has_gravatar") == true)
-	{
-		score = score + gravatar_check.get("confidence_boost");
-		evidence_list.add("Has Gravatar profile (email has been used)");
-	}
-	
-	// ===== SIGNAL 6: LinkedIn/Web validation via Perplexity =====
-	if(person_name != null && company_name != null)
-	{
-		web_check = validateViaWebSearch(email_clean, person_name, company_name, job_title, api_headers);
-		signals.put("web_search", web_check);
-		
-		if(web_check.get("searched") == true)
-		{
-			score = score + web_check.get("confidence_boost");
-			
-			web_evidence = web_check.get("evidence");
-			if(web_evidence != null)
-			{
-				for each ev in web_evidence
-				{
-					evidence_list.add(ev);
-				}
-			}
-		}
-	}
-	
-	// ===== Calculate final confidence level =====
-	confidence_level = "low";
-	recommendation = "";
-	
-	if(score >= 70)
-	{
-		confidence_level = "high";
-		recommendation = "Email highly likely valid - multiple signals confirm";
-	}
-	else if(score >= 45)
-	{
-		confidence_level = "medium";
-		recommendation = "Email likely valid - some confirming signals";
-	}
-	else if(score >= 25)
-	{
-		confidence_level = "low-medium";
-		recommendation = "Email possibly valid - limited validation";
-	}
-	else
-	{
-		confidence_level = "low";
-		recommendation = "Email uncertain - could not validate";
-	}
-	
-	result.put("confidence_score", score);
-	result.put("confidence_level", confidence_level);
-	result.put("evidence", evidence_list);
-	result.put("signals", signals);
-	result.put("recommendation", recommendation);
-	
-	return result;
-};
-
-// -----------------------------------------
 // Inputs / defaults
 // -----------------------------------------
 requested_sector = "";
@@ -1169,7 +560,7 @@ for each  comp2 in matching_companies
 	secondary_contact = Map();
 	email_pattern = null;
 	
-	// Extract and validate primary stakeholder
+	// Extract primary stakeholder
 	if(contact_map.containsKey("primary_stakeholder"))
 	{
 		ps = contact_map.get("primary_stakeholder");
@@ -1186,27 +577,321 @@ for each  comp2 in matching_companies
 			primary_contact.put("source_url",ps.get("source_url"));
 			primary_contact.put("notes",ps.get("notes"));
 			
-			// ========== MULTI-SIGNAL EMAIL VALIDATION ==========
+			// ========== MULTI-SIGNAL EMAIL VALIDATION FOR PRIMARY ==========
 			primary_email = ps.get("email");
 			if(primary_email != null && (primary_email + "").trim() != "" && (primary_email + "").trim() != "null")
 			{
-				primary_name = ps.get("name");
-				primary_title = ps.get("job_title");
+				pv_email = (primary_email + "").trim().toLowerCase();
+				pv_name = ps.get("name");
+				pv_title = ps.get("job_title");
 				
-				primary_verify = validateEmailMultiSignal(
-					primary_email + "",
-					primary_name,
-					company_name_str,
-					primary_title,
-					known_emails,
-					headers
-				);
-				primary_contact.put("email_validation", primary_verify);
+				// Initialize validation result
+				pv_result = Map();
+				pv_result.put("email", pv_email);
+				pv_result.put("syntax_valid", false);
+				pv_result.put("mx_found", false);
+				pv_result.put("confidence_score", 0);
+				pv_result.put("confidence_level", "low");
+				pv_evidence = List();
+				pv_signals = Map();
+				pv_score = 0;
+				
+				// SIGNAL 1: Syntax validation
+				pv_syntax_ok = false;
+				pv_atPos = pv_email.indexOf("@");
+				if(pv_atPos > 0)
+				{
+					pv_afterAt = pv_email.subString(pv_atPos + 1, pv_email.length());
+					pv_secondAt = pv_afterAt.indexOf("@");
+					if(pv_secondAt < 0)
+					{
+						pv_dotPos = pv_afterAt.indexOf(".");
+						if(pv_dotPos > 0 && pv_dotPos < pv_afterAt.length() - 1)
+						{
+							pv_syntax_ok = true;
+						}
+					}
+				}
+				pv_result.put("syntax_valid", pv_syntax_ok);
+				pv_signals.put("syntax_valid", pv_syntax_ok);
+				
+				if(pv_syntax_ok == true)
+				{
+					pv_score = pv_score + 10;
+					pv_evidence.add("Valid email syntax");
+					
+					// Extract domain for MX check
+					pv_domain = pv_email.subString(pv_atPos + 1, pv_email.length());
+					
+					// SIGNAL 2: MX Record check via Google DNS
+					pv_mx_found = false;
+					pv_dns_url = "https://dns.google/resolve?name=" + pv_domain + "&type=MX";
+					try
+					{
+						pv_dns_resp = invokeurl
+						[
+							url: pv_dns_url
+							type: GET
+						];
+						if(pv_dns_resp != null && pv_dns_resp.containsKey("Answer"))
+						{
+							pv_answers = pv_dns_resp.get("Answer");
+							if(pv_answers != null && pv_answers.size() > 0)
+							{
+								pv_mx_found = true;
+							}
+						}
+					}
+					catch(pv_e_dns)
+					{
+						// DNS lookup failed
+					}
+					
+					pv_result.put("mx_found", pv_mx_found);
+					pv_signals.put("mx_found", pv_mx_found);
+					
+					if(pv_mx_found == true)
+					{
+						pv_score = pv_score + 15;
+						pv_evidence.add("Domain has valid MX records");
+					}
+					
+					// SIGNAL 3: Email pattern analysis
+					pv_local = pv_email.subString(0, pv_atPos);
+					pv_pattern = "unknown";
+					pv_local_dot = pv_local.indexOf(".");
+					if(pv_local_dot > 0 && pv_local_dot < pv_local.length() - 1)
+					{
+						pv_before_dot = pv_local.subString(0, pv_local_dot);
+						if(pv_before_dot.length() == 1)
+						{
+							pv_pattern = "f.lastname";
+						}
+						else
+						{
+							pv_pattern = "firstname.lastname";
+						}
+					}
+					else
+					{
+						pv_local_underscore = pv_local.indexOf("_");
+						if(pv_local_underscore > 0)
+						{
+							pv_pattern = "firstname_lastname";
+						}
+					}
+					pv_signals.put("pattern", pv_pattern);
+					
+					if(pv_pattern == "firstname.lastname" || pv_pattern == "f.lastname" || pv_pattern == "firstname_lastname")
+					{
+						pv_score = pv_score + 5;
+						pv_evidence.add("Email follows professional '" + pv_pattern + "' pattern");
+					}
+					
+					// SIGNAL 4: Name extraction and matching
+					if(pv_name != null && (pv_name + "").trim() != "" && (pv_name + "").trim() != "null")
+					{
+						pv_name_lower = (pv_name + "").trim().toLowerCase();
+						
+						// Extract name from email if firstname.lastname pattern
+						if(pv_local_dot > 0 && pv_local_dot < pv_local.length() - 1)
+						{
+							pv_extracted_first = pv_local.subString(0, pv_local_dot);
+							pv_extracted_last = pv_local.subString(pv_local_dot + 1, pv_local.length());
+							pv_extracted_full = pv_extracted_first + " " + pv_extracted_last;
+							
+							if(pv_name_lower == pv_extracted_full)
+							{
+								pv_score = pv_score + 25;
+								pv_evidence.add("Email name matches provided name exactly");
+							}
+							else if(pv_name_lower.indexOf(pv_extracted_first) >= 0)
+							{
+								pv_score = pv_score + 15;
+								pv_evidence.add("Email first name found in provided name");
+							}
+						}
+					}
+					
+					// SIGNAL 5: Gravatar check
+					pv_email_hash = pv_email.toMD5Hash();
+					pv_gravatar_url = "https://www.gravatar.com/avatar/" + pv_email_hash + "?d=404";
+					pv_has_gravatar = false;
+					try
+					{
+						pv_gravatar_resp = invokeurl
+						[
+							url: pv_gravatar_url
+							type: GET
+						];
+						// If we get here without 404, gravatar exists
+						pv_has_gravatar = true;
+					}
+					catch(pv_e_gravatar)
+					{
+						// 404 or error - no gravatar
+					}
+					pv_signals.put("has_gravatar", pv_has_gravatar);
+					
+					if(pv_has_gravatar == true)
+					{
+						pv_score = pv_score + 15;
+						pv_evidence.add("Email has Gravatar profile (email has been used)");
+					}
+					
+					// SIGNAL 6: LinkedIn/Web validation via Perplexity
+					if(pv_name != null && (pv_name + "").trim() != "" && (pv_name + "").trim() != "null")
+					{
+						pv_web_prompt = "Search the web to verify if this person and email are legitimate:\n\n";
+						pv_web_prompt = pv_web_prompt + "Email: " + pv_email + "\n";
+						pv_web_prompt = pv_web_prompt + "Name: " + pv_name + "\n";
+						pv_web_prompt = pv_web_prompt + "Company: " + company_name_str + "\n";
+						if(pv_title != null && (pv_title + "").trim() != "")
+						{
+							pv_web_prompt = pv_web_prompt + "Job Title: " + pv_title + "\n";
+						}
+						pv_web_prompt = pv_web_prompt + "\nSearch for:\n";
+						pv_web_prompt = pv_web_prompt + "1. LinkedIn profile for " + pv_name + " at " + company_name_str + "\n";
+						pv_web_prompt = pv_web_prompt + "2. The exact email \"" + pv_email + "\" on any public webpage\n";
+						pv_web_prompt = pv_web_prompt + "3. " + pv_name + " mentioned on " + company_name_str + "'s website\n\n";
+						pv_web_prompt = pv_web_prompt + "Return ONLY valid JSON:\n";
+						pv_web_prompt = pv_web_prompt + "{\"person_exists_at_company\": true, \"linkedin_found\": true, \"linkedin_url\": \"url\", \"email_found_publicly\": false, \"company_page_found\": true}";
+						
+						pv_web_items = List();
+						pv_web_item = Map();
+						pv_web_item.put("role", "user");
+						pv_web_item.put("content", pv_web_prompt);
+						pv_web_items.add(pv_web_item);
+						
+						pv_web_body = Map();
+						pv_web_body.put("model", "sonar");
+						pv_web_body.put("messages", pv_web_items);
+						pv_web_body.put("temperature", 0);
+						
+						try
+						{
+							pv_web_resp = invokeurl
+							[
+								url: "https://api.perplexity.ai/chat/completions"
+								type: POST
+								body: pv_web_body.toString()
+								headers: headers
+							];
+							
+							if(pv_web_resp != null && pv_web_resp.containsKey("choices"))
+							{
+								pv_web_choices = pv_web_resp.get("choices");
+								if(pv_web_choices != null && pv_web_choices.size() > 0)
+								{
+									pv_web_first = pv_web_choices.get(0);
+									if(pv_web_first != null && pv_web_first.containsKey("message"))
+									{
+										pv_web_msg = pv_web_first.get("message");
+										if(pv_web_msg != null && pv_web_msg.containsKey("content"))
+										{
+											pv_web_raw = pv_web_msg.get("content");
+											
+											// Extract JSON
+											pv_web_json = pv_web_raw;
+											pv_web_s = pv_web_raw.indexOf("{");
+											pv_web_e = pv_web_raw.lastIndexOf("}");
+											if(pv_web_s >= 0 && pv_web_e > pv_web_s)
+											{
+												pv_web_json = pv_web_raw.subString(pv_web_s, pv_web_e + 1);
+											}
+											
+											pv_web_data = pv_web_json.toMap();
+											
+											if(pv_web_data.containsKey("person_exists_at_company"))
+											{
+												if(pv_web_data.get("person_exists_at_company") == true)
+												{
+													pv_score = pv_score + 20;
+													pv_evidence.add("Web search confirms " + pv_name + " works at " + company_name_str);
+												}
+											}
+											
+											if(pv_web_data.containsKey("linkedin_found"))
+											{
+												if(pv_web_data.get("linkedin_found") == true)
+												{
+													pv_score = pv_score + 15;
+													pv_li_url = pv_web_data.get("linkedin_url");
+													if(pv_li_url != null && (pv_li_url + "").trim() != "" && (pv_li_url + "").trim() != "null")
+													{
+														pv_evidence.add("LinkedIn profile: " + pv_li_url);
+														pv_signals.put("linkedin_url", pv_li_url);
+													}
+													else
+													{
+														pv_evidence.add("LinkedIn profile found");
+													}
+													pv_signals.put("linkedin_found", true);
+												}
+											}
+											
+											if(pv_web_data.containsKey("email_found_publicly"))
+											{
+												if(pv_web_data.get("email_found_publicly") == true)
+												{
+													pv_score = pv_score + 25;
+													pv_evidence.add("Email found publicly on web");
+													pv_signals.put("email_found_publicly", true);
+												}
+											}
+											
+											if(pv_web_data.containsKey("company_page_found"))
+											{
+												if(pv_web_data.get("company_page_found") == true)
+												{
+													pv_score = pv_score + 15;
+													pv_evidence.add("Person found on company website");
+													pv_signals.put("company_page_found", true);
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+						catch(pv_e_web)
+						{
+							// Web validation failed - continue without it
+						}
+					}
+				}
+				
+				// Calculate confidence level
+				pv_level = "low";
+				pv_recommendation = "Email uncertain - could not validate";
+				if(pv_score >= 70)
+				{
+					pv_level = "high";
+					pv_recommendation = "Email highly likely valid - multiple signals confirm";
+				}
+				else if(pv_score >= 45)
+				{
+					pv_level = "medium";
+					pv_recommendation = "Email likely valid - some confirming signals";
+				}
+				else if(pv_score >= 25)
+				{
+					pv_level = "low-medium";
+					pv_recommendation = "Email possibly valid - limited validation";
+				}
+				
+				pv_result.put("confidence_score", pv_score);
+				pv_result.put("confidence_level", pv_level);
+				pv_result.put("evidence", pv_evidence);
+				pv_result.put("signals", pv_signals);
+				pv_result.put("recommendation", pv_recommendation);
+				
+				primary_contact.put("email_validation", pv_result);
 			}
 		}
 	}
 	
-	// Extract and validate secondary stakeholder
+	// Extract secondary stakeholder
 	if(contact_map.containsKey("secondary_stakeholder"))
 	{
 		ss = contact_map.get("secondary_stakeholder");
@@ -1223,22 +908,313 @@ for each  comp2 in matching_companies
 			secondary_contact.put("source_url",ss.get("source_url"));
 			secondary_contact.put("notes",ss.get("notes"));
 			
-			// ========== MULTI-SIGNAL EMAIL VALIDATION ==========
+			// ========== MULTI-SIGNAL EMAIL VALIDATION FOR SECONDARY ==========
 			secondary_email = ss.get("email");
 			if(secondary_email != null && (secondary_email + "").trim() != "" && (secondary_email + "").trim() != "null")
 			{
-				secondary_name = ss.get("name");
-				secondary_title = ss.get("job_title");
+				sv_email = (secondary_email + "").trim().toLowerCase();
+				sv_name = ss.get("name");
+				sv_title = ss.get("job_title");
 				
-				secondary_verify = validateEmailMultiSignal(
-					secondary_email + "",
-					secondary_name,
-					company_name_str,
-					secondary_title,
-					known_emails,
-					headers
-				);
-				secondary_contact.put("email_validation", secondary_verify);
+				// Initialize validation result
+				sv_result = Map();
+				sv_result.put("email", sv_email);
+				sv_result.put("syntax_valid", false);
+				sv_result.put("mx_found", false);
+				sv_result.put("confidence_score", 0);
+				sv_result.put("confidence_level", "low");
+				sv_evidence = List();
+				sv_signals = Map();
+				sv_score = 0;
+				
+				// SIGNAL 1: Syntax validation
+				sv_syntax_ok = false;
+				sv_atPos = sv_email.indexOf("@");
+				if(sv_atPos > 0)
+				{
+					sv_afterAt = sv_email.subString(sv_atPos + 1, sv_email.length());
+					sv_secondAt = sv_afterAt.indexOf("@");
+					if(sv_secondAt < 0)
+					{
+						sv_dotPos = sv_afterAt.indexOf(".");
+						if(sv_dotPos > 0 && sv_dotPos < sv_afterAt.length() - 1)
+						{
+							sv_syntax_ok = true;
+						}
+					}
+				}
+				sv_result.put("syntax_valid", sv_syntax_ok);
+				sv_signals.put("syntax_valid", sv_syntax_ok);
+				
+				if(sv_syntax_ok == true)
+				{
+					sv_score = sv_score + 10;
+					sv_evidence.add("Valid email syntax");
+					
+					// Extract domain for MX check
+					sv_domain = sv_email.subString(sv_atPos + 1, sv_email.length());
+					
+					// SIGNAL 2: MX Record check
+					sv_mx_found = false;
+					sv_dns_url = "https://dns.google/resolve?name=" + sv_domain + "&type=MX";
+					try
+					{
+						sv_dns_resp = invokeurl
+						[
+							url: sv_dns_url
+							type: GET
+						];
+						if(sv_dns_resp != null && sv_dns_resp.containsKey("Answer"))
+						{
+							sv_answers = sv_dns_resp.get("Answer");
+							if(sv_answers != null && sv_answers.size() > 0)
+							{
+								sv_mx_found = true;
+							}
+						}
+					}
+					catch(sv_e_dns)
+					{
+						// DNS lookup failed
+					}
+					
+					sv_result.put("mx_found", sv_mx_found);
+					sv_signals.put("mx_found", sv_mx_found);
+					
+					if(sv_mx_found == true)
+					{
+						sv_score = sv_score + 15;
+						sv_evidence.add("Domain has valid MX records");
+					}
+					
+					// SIGNAL 3: Email pattern analysis
+					sv_local = sv_email.subString(0, sv_atPos);
+					sv_pattern = "unknown";
+					sv_local_dot = sv_local.indexOf(".");
+					if(sv_local_dot > 0 && sv_local_dot < sv_local.length() - 1)
+					{
+						sv_before_dot = sv_local.subString(0, sv_local_dot);
+						if(sv_before_dot.length() == 1)
+						{
+							sv_pattern = "f.lastname";
+						}
+						else
+						{
+							sv_pattern = "firstname.lastname";
+						}
+					}
+					else
+					{
+						sv_local_underscore = sv_local.indexOf("_");
+						if(sv_local_underscore > 0)
+						{
+							sv_pattern = "firstname_lastname";
+						}
+					}
+					sv_signals.put("pattern", sv_pattern);
+					
+					if(sv_pattern == "firstname.lastname" || sv_pattern == "f.lastname" || sv_pattern == "firstname_lastname")
+					{
+						sv_score = sv_score + 5;
+						sv_evidence.add("Email follows professional '" + sv_pattern + "' pattern");
+					}
+					
+					// SIGNAL 4: Name extraction and matching
+					if(sv_name != null && (sv_name + "").trim() != "" && (sv_name + "").trim() != "null")
+					{
+						sv_name_lower = (sv_name + "").trim().toLowerCase();
+						
+						if(sv_local_dot > 0 && sv_local_dot < sv_local.length() - 1)
+						{
+							sv_extracted_first = sv_local.subString(0, sv_local_dot);
+							sv_extracted_last = sv_local.subString(sv_local_dot + 1, sv_local.length());
+							sv_extracted_full = sv_extracted_first + " " + sv_extracted_last;
+							
+							if(sv_name_lower == sv_extracted_full)
+							{
+								sv_score = sv_score + 25;
+								sv_evidence.add("Email name matches provided name exactly");
+							}
+							else if(sv_name_lower.indexOf(sv_extracted_first) >= 0)
+							{
+								sv_score = sv_score + 15;
+								sv_evidence.add("Email first name found in provided name");
+							}
+						}
+					}
+					
+					// SIGNAL 5: Gravatar check
+					sv_email_hash = sv_email.toMD5Hash();
+					sv_gravatar_url = "https://www.gravatar.com/avatar/" + sv_email_hash + "?d=404";
+					sv_has_gravatar = false;
+					try
+					{
+						sv_gravatar_resp = invokeurl
+						[
+							url: sv_gravatar_url
+							type: GET
+						];
+						sv_has_gravatar = true;
+					}
+					catch(sv_e_gravatar)
+					{
+						// No gravatar
+					}
+					sv_signals.put("has_gravatar", sv_has_gravatar);
+					
+					if(sv_has_gravatar == true)
+					{
+						sv_score = sv_score + 15;
+						sv_evidence.add("Email has Gravatar profile");
+					}
+					
+					// SIGNAL 6: LinkedIn/Web validation via Perplexity
+					if(sv_name != null && (sv_name + "").trim() != "" && (sv_name + "").trim() != "null")
+					{
+						sv_web_prompt = "Search the web to verify if this person and email are legitimate:\n\n";
+						sv_web_prompt = sv_web_prompt + "Email: " + sv_email + "\n";
+						sv_web_prompt = sv_web_prompt + "Name: " + sv_name + "\n";
+						sv_web_prompt = sv_web_prompt + "Company: " + company_name_str + "\n";
+						if(sv_title != null && (sv_title + "").trim() != "")
+						{
+							sv_web_prompt = sv_web_prompt + "Job Title: " + sv_title + "\n";
+						}
+						sv_web_prompt = sv_web_prompt + "\nSearch for:\n";
+						sv_web_prompt = sv_web_prompt + "1. LinkedIn profile for " + sv_name + " at " + company_name_str + "\n";
+						sv_web_prompt = sv_web_prompt + "2. The exact email \"" + sv_email + "\" on any public webpage\n";
+						sv_web_prompt = sv_web_prompt + "3. " + sv_name + " mentioned on " + company_name_str + "'s website\n\n";
+						sv_web_prompt = sv_web_prompt + "Return ONLY valid JSON:\n";
+						sv_web_prompt = sv_web_prompt + "{\"person_exists_at_company\": true, \"linkedin_found\": true, \"linkedin_url\": \"url\", \"email_found_publicly\": false, \"company_page_found\": true}";
+						
+						sv_web_items = List();
+						sv_web_item = Map();
+						sv_web_item.put("role", "user");
+						sv_web_item.put("content", sv_web_prompt);
+						sv_web_items.add(sv_web_item);
+						
+						sv_web_body = Map();
+						sv_web_body.put("model", "sonar");
+						sv_web_body.put("messages", sv_web_items);
+						sv_web_body.put("temperature", 0);
+						
+						try
+						{
+							sv_web_resp = invokeurl
+							[
+								url: "https://api.perplexity.ai/chat/completions"
+								type: POST
+								body: sv_web_body.toString()
+								headers: headers
+							];
+							
+							if(sv_web_resp != null && sv_web_resp.containsKey("choices"))
+							{
+								sv_web_choices = sv_web_resp.get("choices");
+								if(sv_web_choices != null && sv_web_choices.size() > 0)
+								{
+									sv_web_first = sv_web_choices.get(0);
+									if(sv_web_first != null && sv_web_first.containsKey("message"))
+									{
+										sv_web_msg = sv_web_first.get("message");
+										if(sv_web_msg != null && sv_web_msg.containsKey("content"))
+										{
+											sv_web_raw = sv_web_msg.get("content");
+											
+											sv_web_json = sv_web_raw;
+											sv_web_s = sv_web_raw.indexOf("{");
+											sv_web_e = sv_web_raw.lastIndexOf("}");
+											if(sv_web_s >= 0 && sv_web_e > sv_web_s)
+											{
+												sv_web_json = sv_web_raw.subString(sv_web_s, sv_web_e + 1);
+											}
+											
+											sv_web_data = sv_web_json.toMap();
+											
+											if(sv_web_data.containsKey("person_exists_at_company"))
+											{
+												if(sv_web_data.get("person_exists_at_company") == true)
+												{
+													sv_score = sv_score + 20;
+													sv_evidence.add("Web search confirms " + sv_name + " works at " + company_name_str);
+												}
+											}
+											
+											if(sv_web_data.containsKey("linkedin_found"))
+											{
+												if(sv_web_data.get("linkedin_found") == true)
+												{
+													sv_score = sv_score + 15;
+													sv_li_url = sv_web_data.get("linkedin_url");
+													if(sv_li_url != null && (sv_li_url + "").trim() != "" && (sv_li_url + "").trim() != "null")
+													{
+														sv_evidence.add("LinkedIn profile: " + sv_li_url);
+														sv_signals.put("linkedin_url", sv_li_url);
+													}
+													else
+													{
+														sv_evidence.add("LinkedIn profile found");
+													}
+													sv_signals.put("linkedin_found", true);
+												}
+											}
+											
+											if(sv_web_data.containsKey("email_found_publicly"))
+											{
+												if(sv_web_data.get("email_found_publicly") == true)
+												{
+													sv_score = sv_score + 25;
+													sv_evidence.add("Email found publicly on web");
+													sv_signals.put("email_found_publicly", true);
+												}
+											}
+											
+											if(sv_web_data.containsKey("company_page_found"))
+											{
+												if(sv_web_data.get("company_page_found") == true)
+												{
+													sv_score = sv_score + 15;
+													sv_evidence.add("Person found on company website");
+													sv_signals.put("company_page_found", true);
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+						catch(sv_e_web)
+						{
+							// Web validation failed
+						}
+					}
+				}
+				
+				// Calculate confidence level
+				sv_level = "low";
+				sv_recommendation = "Email uncertain - could not validate";
+				if(sv_score >= 70)
+				{
+					sv_level = "high";
+					sv_recommendation = "Email highly likely valid - multiple signals confirm";
+				}
+				else if(sv_score >= 45)
+				{
+					sv_level = "medium";
+					sv_recommendation = "Email likely valid - some confirming signals";
+				}
+				else if(sv_score >= 25)
+				{
+					sv_level = "low-medium";
+					sv_recommendation = "Email possibly valid - limited validation";
+				}
+				
+				sv_result.put("confidence_score", sv_score);
+				sv_result.put("confidence_level", sv_level);
+				sv_result.put("evidence", sv_evidence);
+				sv_result.put("signals", sv_signals);
+				sv_result.put("recommendation", sv_recommendation);
+				
+				secondary_contact.put("email_validation", sv_result);
 			}
 		}
 	}
