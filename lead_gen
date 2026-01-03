@@ -114,14 +114,18 @@ if(requested_size != "")
 }
 // -----------------------------------------
 // Pagination controls (NO while)
-// Attempt 3 pages * 10 = 30 candidates, then trim to 20.
+// Attempt 6 pages * 10 = 60 candidates, to ensure we get 20 after filtering.
 // -----------------------------------------
 max_companies = 20;
+max_candidates = 60;
 page_size = 10;
 pages_seed = List();
 pages_seed.add(1);
 pages_seed.add(2);
 pages_seed.add(3);
+pages_seed.add(4);
+pages_seed.add(5);
+pages_seed.add(6);
 next_page_token = null;
 companies_found = List();
 // -----------------------------------------
@@ -129,7 +133,7 @@ companies_found = List();
 // -----------------------------------------
 for each  page in pages_seed
 {
-	if(companies_found.size() >= max_companies)
+	if(companies_found.size() >= max_candidates)
 	{
 		break;
 	}
@@ -238,7 +242,7 @@ for each  page in pages_seed
 		{
 			continue;
 		}
-		if(companies_found.size() >= max_companies)
+		if(companies_found.size() >= max_candidates)
 		{
 			break;
 		}
