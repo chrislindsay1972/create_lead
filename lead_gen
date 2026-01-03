@@ -16,6 +16,7 @@ out = Map();
 // Perplexity API config
 // -----------------------------------------
 PERPLEXITY_API_KEY = zoho.crm.getOrgVariable("PERPLEXITY_API_KEY");
+HUNTER_API_KEY = zoho.crm.getOrgVariable("HUNTER_API_KEY");
 api_key_valid = false;
 if(PERPLEXITY_API_KEY != null && PERPLEXITY_API_KEY.trim() != "")
 {
@@ -565,6 +566,30 @@ for each  comp2 in matching_companies
 			primary_contact.put("company_website",ps.get("company_website"));
 			primary_contact.put("source_url",ps.get("source_url"));
 			primary_contact.put("notes",ps.get("notes"));
+			
+			// Hunter Verification
+			p_email = ps.get("email");
+			if(HUNTER_API_KEY != null && HUNTER_API_KEY != "" && p_email != null && p_email != "")
+			{
+				try
+				{
+					h_resp = invokeurl
+					[
+						url :"https://api.hunter.io/v2/email-verifier?email=" + p_email + "&api_key=" + HUNTER_API_KEY
+						type :GET
+					];
+					if(h_resp != null && h_resp.get("data") != null)
+					{
+						h_data = h_resp.get("data");
+						primary_contact.put("verification_status", h_data.get("status"));
+						primary_contact.put("verification_score", h_data.get("score"));
+					}
+				}
+				catch(e_hunter_p)
+				{
+					info "Hunter verification failed for primary: " + e_hunter_p;
+				}
+			}
 		}
 	}
 	// Extract secondary stakeholder
@@ -583,6 +608,30 @@ for each  comp2 in matching_companies
 			secondary_contact.put("company_website",ss.get("company_website"));
 			secondary_contact.put("source_url",ss.get("source_url"));
 			secondary_contact.put("notes",ss.get("notes"));
+
+			// Hunter Verification
+			s_email = ss.get("email");
+			if(HUNTER_API_KEY != null && HUNTER_API_KEY != "" && s_email != null && s_email != "")
+			{
+				try
+				{
+					h_resp_s = invokeurl
+					[
+						url :"https://api.hunter.io/v2/email-verifier?email=" + s_email + "&api_key=" + HUNTER_API_KEY
+						type :GET
+					];
+					if(h_resp_s != null && h_resp_s.get("data") != null)
+					{
+						h_data_s = h_resp_s.get("data");
+						secondary_contact.put("verification_status", h_data_s.get("status"));
+						secondary_contact.put("verification_score", h_data_s.get("score"));
+					}
+				}
+				catch(e_hunter_s)
+				{
+					info "Hunter verification failed for secondary: " + e_hunter_s;
+				}
+			}
 		}
 	}
 	// Get email pattern
