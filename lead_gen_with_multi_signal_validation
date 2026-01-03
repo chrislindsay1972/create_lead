@@ -10,7 +10,6 @@ out = Map();
 // - Email pattern analysis (firstname.lastname etc)
 // - Name-to-email matching
 // - LinkedIn/Web search validation (person exists at company)
-// - Gravatar check (email has been used)
 //
 // Constraints respected:
 // - NO while
@@ -713,33 +712,7 @@ for each  comp2 in matching_companies
 						}
 					}
 					
-					// SIGNAL 5: Gravatar check
-					pv_email_hash = pv_email.toMD5Hash();
-					pv_gravatar_url = "https://www.gravatar.com/avatar/" + pv_email_hash + "?d=404";
-					pv_has_gravatar = false;
-					try
-					{
-						pv_gravatar_resp = invokeurl
-						[
-							url: pv_gravatar_url
-							type: GET
-						];
-						// If we get here without 404, gravatar exists
-						pv_has_gravatar = true;
-					}
-					catch(pv_e_gravatar)
-					{
-						// 404 or error - no gravatar
-					}
-					pv_signals.put("has_gravatar", pv_has_gravatar);
-					
-					if(pv_has_gravatar == true)
-					{
-						pv_score = pv_score + 15;
-						pv_evidence.add("Email has Gravatar profile (email has been used)");
-					}
-					
-					// SIGNAL 6: LinkedIn/Web validation via Perplexity
+					// SIGNAL 5: LinkedIn/Web validation via Perplexity
 					if(pv_name != null && (pv_name + "").trim() != "" && (pv_name + "").trim() != "null")
 					{
 						pv_web_prompt = "Search the web to verify if this person and email are legitimate:\n\n";
@@ -1043,32 +1016,7 @@ for each  comp2 in matching_companies
 						}
 					}
 					
-					// SIGNAL 5: Gravatar check
-					sv_email_hash = sv_email.toMD5Hash();
-					sv_gravatar_url = "https://www.gravatar.com/avatar/" + sv_email_hash + "?d=404";
-					sv_has_gravatar = false;
-					try
-					{
-						sv_gravatar_resp = invokeurl
-						[
-							url: sv_gravatar_url
-							type: GET
-						];
-						sv_has_gravatar = true;
-					}
-					catch(sv_e_gravatar)
-					{
-						// No gravatar
-					}
-					sv_signals.put("has_gravatar", sv_has_gravatar);
-					
-					if(sv_has_gravatar == true)
-					{
-						sv_score = sv_score + 15;
-						sv_evidence.add("Email has Gravatar profile");
-					}
-					
-					// SIGNAL 6: LinkedIn/Web validation via Perplexity
+					// SIGNAL 5: LinkedIn/Web validation via Perplexity
 					if(sv_name != null && (sv_name + "").trim() != "" && (sv_name + "").trim() != "null")
 					{
 						sv_web_prompt = "Search the web to verify if this person and email are legitimate:\n\n";
