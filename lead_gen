@@ -26,6 +26,7 @@ if(api_key_valid == false)
 	out.put("status","ERROR");
 	out.put("message","PERPLEXITY_API_KEY not configured. Please set the org variable.");
 	info out;
+	return out;
 }
 if(api_key_valid == true)
 {
@@ -620,5 +621,6 @@ out.put("job_title",target_job_title);
 out.put("result_count",results.size());
 out.put("results",results);
 info out;
+return out;
 }
 }
