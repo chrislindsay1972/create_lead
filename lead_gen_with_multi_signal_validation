@@ -4,7 +4,14 @@ out = Map();
 // End-to-end: discover UK companies for a sector + size (up to 20, paginated),
 // then enrich each company with TWO contacts (primary + secondary) and email pattern info.
 // 
-// EMAIL VALIDATION via MULTI-SIGNAL approach:
+// EMAIL GENERATION + VALIDATION via MULTI-SIGNAL approach:
+// 
+// When Perplexity doesn't find an email, we GENERATE probable emails:
+// - Parse contact name into first/last (handles "Sarah O'Toole" -> sarah, otoole)
+// - Generate 5 patterns: firstname.lastname, f.lastname, firstname, firstnamelastname, flastname
+// - Validate via Perplexity web search to find best match
+//
+// Validation signals:
 // - Syntax validation
 // - MX record check (domain has mail servers)
 // - Email pattern analysis (firstname.lastname etc)
@@ -576,8 +583,221 @@ for each  comp2 in matching_companies
 			primary_contact.put("source_url",ps.get("source_url"));
 			primary_contact.put("notes",ps.get("notes"));
 			
-			// ========== MULTI-SIGNAL EMAIL VALIDATION FOR PRIMARY ==========
+			// ========== EMAIL GENERATION + VALIDATION FOR PRIMARY ==========
 			primary_email = ps.get("email");
+			pv_name = ps.get("name");
+			pv_title = ps.get("job_title");
+			
+			// If no email found but we have a name, GENERATE probable emails
+			if((primary_email == null || (primary_email + "").trim() == "" || (primary_email + "").trim() == "null") && pv_name != null && (pv_name + "").trim() != "" && (pv_name + "").trim() != "null")
+			{
+				// Parse name into first and last (handle "Sarah O'Toole", "Lucy Smith", etc.)
+				gen_full_name = (pv_name + "").trim().toLowerCase();
+				gen_first = "";
+				gen_last = "";
+				
+				// Find the space separating first and last name
+				gen_space_pos = gen_full_name.indexOf(" ");
+				if(gen_space_pos > 0)
+				{
+					gen_first = gen_full_name.subString(0, gen_space_pos);
+					gen_last = gen_full_name.subString(gen_space_pos + 1, gen_full_name.length());
+					
+					// Handle multiple spaces (take last word as last name)
+					gen_last_space = gen_last.lastIndexOf(" ");
+					if(gen_last_space > 0)
+					{
+						gen_last = gen_last.subString(gen_last_space + 1, gen_last.length());
+					}
+				}
+				
+				// Clean names - remove apostrophes, hyphens for email (O'Toole -> otoole)
+				gen_first_clean = "";
+				for each char_idx in gen_first.length().range(0, gen_first.length())
+				{
+					gen_char = gen_first.subString(char_idx, char_idx + 1);
+					if(gen_char != "'" && gen_char != "-" && gen_char != " ")
+					{
+						gen_first_clean = gen_first_clean + gen_char;
+					}
+				}
+				
+				gen_last_clean = "";
+				for each char_idx2 in gen_last.length().range(0, gen_last.length())
+				{
+					gen_char2 = gen_last.subString(char_idx2, char_idx2 + 1);
+					if(gen_char2 != "'" && gen_char2 != "-" && gen_char2 != " ")
+					{
+						gen_last_clean = gen_last_clean + gen_char2;
+					}
+				}
+				
+				// Generate email patterns if we have both names
+				if(gen_first_clean != "" && gen_last_clean != "")
+				{
+					gen_emails = List();
+					gen_emails.add(gen_first_clean + "." + gen_last_clean + "@" + domain);  // firstname.lastname
+					gen_emails.add(gen_first_clean.subString(0, 1) + "." + gen_last_clean + "@" + domain);  // f.lastname
+					gen_emails.add(gen_first_clean + "@" + domain);  // firstname
+					gen_emails.add(gen_first_clean + gen_last_clean + "@" + domain);  // firstnamelastname
+					gen_emails.add(gen_first_clean.subString(0, 1) + gen_last_clean + "@" + domain);  // flastname
+					
+					// Check MX records once for the domain
+					gen_mx_found = false;
+					gen_dns_url = "https://dns.google/resolve?name=" + domain + "&type=MX";
+					try
+					{
+						gen_dns_resp = invokeurl
+						[
+							url: gen_dns_url
+							type: GET
+						];
+						if(gen_dns_resp != null && gen_dns_resp.containsKey("Answer"))
+						{
+							gen_answers = gen_dns_resp.get("Answer");
+							if(gen_answers != null && gen_answers.size() > 0)
+							{
+								gen_mx_found = true;
+							}
+						}
+					}
+					catch(gen_e_dns)
+					{
+						// DNS lookup failed
+					}
+					
+					// Only proceed if domain has MX records
+					if(gen_mx_found == true)
+					{
+						// Validate generated emails using Perplexity web search
+						gen_prompt = "Search the web to find the email address for:\n\n";
+						gen_prompt = gen_prompt + "Name: " + pv_name + "\n";
+						gen_prompt = gen_prompt + "Company: " + company_name_str + "\n";
+						gen_prompt = gen_prompt + "Domain: " + domain + "\n";
+						if(pv_title != null && (pv_title + "").trim() != "")
+						{
+							gen_prompt = gen_prompt + "Job Title: " + pv_title + "\n";
+						}
+						gen_prompt = gen_prompt + "\nI have generated these possible email addresses:\n";
+						gen_prompt = gen_prompt + "1. " + gen_emails.get(0) + "\n";
+						gen_prompt = gen_prompt + "2. " + gen_emails.get(1) + "\n";
+						gen_prompt = gen_prompt + "3. " + gen_emails.get(2) + "\n";
+						gen_prompt = gen_prompt + "4. " + gen_emails.get(3) + "\n";
+						gen_prompt = gen_prompt + "5. " + gen_emails.get(4) + "\n";
+						gen_prompt = gen_prompt + "\nPlease search to determine:\n";
+						gen_prompt = gen_prompt + "1. Does this person exist at this company? (LinkedIn, company website)\n";
+						gen_prompt = gen_prompt + "2. What is the company's email pattern? (look for other employee emails)\n";
+						gen_prompt = gen_prompt + "3. Which email from the list is most likely correct?\n\n";
+						gen_prompt = gen_prompt + "Return ONLY valid JSON:\n";
+						gen_prompt = gen_prompt + "{\"person_exists\": true, \"linkedin_found\": true, \"linkedin_url\": \"url\", \"company_page_found\": true, \"detected_pattern\": \"firstname.lastname\", \"best_email\": \"" + gen_emails.get(0) + "\", \"confidence\": \"high\"}";
+						
+						gen_items = List();
+						gen_item = Map();
+						gen_item.put("role", "user");
+						gen_item.put("content", gen_prompt);
+						gen_items.add(gen_item);
+						
+						gen_body = Map();
+						gen_body.put("model", "sonar");
+						gen_body.put("messages", gen_items);
+						gen_body.put("temperature", 0);
+						
+						try
+						{
+							gen_resp = invokeurl
+							[
+								url: "https://api.perplexity.ai/chat/completions"
+								type: POST
+								body: gen_body.toString()
+								headers: headers
+							];
+							
+							if(gen_resp != null && gen_resp.containsKey("choices"))
+							{
+								gen_choices = gen_resp.get("choices");
+								if(gen_choices != null && gen_choices.size() > 0)
+								{
+									gen_first_choice = gen_choices.get(0);
+									if(gen_first_choice != null && gen_first_choice.containsKey("message"))
+									{
+										gen_msg = gen_first_choice.get("message");
+										if(gen_msg != null && gen_msg.containsKey("content"))
+										{
+											gen_raw = gen_msg.get("content");
+											
+											// Extract JSON
+											gen_json = gen_raw;
+											gen_s = gen_raw.indexOf("{");
+											gen_e = gen_raw.lastIndexOf("}");
+											if(gen_s >= 0 && gen_e > gen_s)
+											{
+												gen_json = gen_raw.subString(gen_s, gen_e + 1);
+											}
+											
+											try
+											{
+												gen_data = gen_json.toMap();
+												
+												// Get the best email from response
+												if(gen_data.containsKey("best_email"))
+												{
+													gen_best = gen_data.get("best_email");
+													if(gen_best != null && (gen_best + "").trim() != "" && (gen_best + "").indexOf("@") > 0)
+													{
+														// Use this as the primary email
+														primary_email = (gen_best + "").trim().toLowerCase();
+														primary_contact.put("email", primary_email);
+														primary_contact.put("email_generated", true);
+														primary_contact.put("email_source", "pattern_generation");
+														
+														// Store validation signals from generation
+														gen_validation = Map();
+														gen_validation.put("generated_from_name", pv_name);
+														gen_validation.put("patterns_tried", gen_emails);
+														
+														if(gen_data.containsKey("person_exists"))
+														{
+															gen_validation.put("person_exists", gen_data.get("person_exists"));
+														}
+														if(gen_data.containsKey("linkedin_found"))
+														{
+															gen_validation.put("linkedin_found", gen_data.get("linkedin_found"));
+														}
+														if(gen_data.containsKey("linkedin_url"))
+														{
+															gen_validation.put("linkedin_url", gen_data.get("linkedin_url"));
+														}
+														if(gen_data.containsKey("detected_pattern"))
+														{
+															gen_validation.put("detected_pattern", gen_data.get("detected_pattern"));
+														}
+														if(gen_data.containsKey("confidence"))
+														{
+															gen_validation.put("generation_confidence", gen_data.get("confidence"));
+														}
+														
+														primary_contact.put("email_generation_info", gen_validation);
+													}
+												}
+											}
+											catch(gen_e_parse)
+											{
+												// Failed to parse generation response
+											}
+										}
+									}
+								}
+							}
+						}
+						catch(gen_e_call)
+						{
+							// Generation API call failed
+						}
+					}
+				}
+			}
+			
+			// Now validate the email (whether found by Perplexity or generated)
 			if(primary_email != null && (primary_email + "").trim() != "" && (primary_email + "").trim() != "null")
 			{
 				pv_email = (primary_email + "").trim().toLowerCase();
@@ -881,13 +1101,217 @@ for each  comp2 in matching_companies
 			secondary_contact.put("source_url",ss.get("source_url"));
 			secondary_contact.put("notes",ss.get("notes"));
 			
-			// ========== MULTI-SIGNAL EMAIL VALIDATION FOR SECONDARY ==========
+			// ========== EMAIL GENERATION + VALIDATION FOR SECONDARY ==========
 			secondary_email = ss.get("email");
+			sv_name = ss.get("name");
+			sv_title = ss.get("job_title");
+			
+			// If no email found but we have a name, GENERATE probable emails
+			if((secondary_email == null || (secondary_email + "").trim() == "" || (secondary_email + "").trim() == "null") && sv_name != null && (sv_name + "").trim() != "" && (sv_name + "").trim() != "null")
+			{
+				// Parse name into first and last
+				sv_gen_full_name = (sv_name + "").trim().toLowerCase();
+				sv_gen_first = "";
+				sv_gen_last = "";
+				
+				sv_gen_space_pos = sv_gen_full_name.indexOf(" ");
+				if(sv_gen_space_pos > 0)
+				{
+					sv_gen_first = sv_gen_full_name.subString(0, sv_gen_space_pos);
+					sv_gen_last = sv_gen_full_name.subString(sv_gen_space_pos + 1, sv_gen_full_name.length());
+					
+					sv_gen_last_space = sv_gen_last.lastIndexOf(" ");
+					if(sv_gen_last_space > 0)
+					{
+						sv_gen_last = sv_gen_last.subString(sv_gen_last_space + 1, sv_gen_last.length());
+					}
+				}
+				
+				// Clean names - remove apostrophes, hyphens
+				sv_gen_first_clean = "";
+				for each sv_char_idx in sv_gen_first.length().range(0, sv_gen_first.length())
+				{
+					sv_gen_char = sv_gen_first.subString(sv_char_idx, sv_char_idx + 1);
+					if(sv_gen_char != "'" && sv_gen_char != "-" && sv_gen_char != " ")
+					{
+						sv_gen_first_clean = sv_gen_first_clean + sv_gen_char;
+					}
+				}
+				
+				sv_gen_last_clean = "";
+				for each sv_char_idx2 in sv_gen_last.length().range(0, sv_gen_last.length())
+				{
+					sv_gen_char2 = sv_gen_last.subString(sv_char_idx2, sv_char_idx2 + 1);
+					if(sv_gen_char2 != "'" && sv_gen_char2 != "-" && sv_gen_char2 != " ")
+					{
+						sv_gen_last_clean = sv_gen_last_clean + sv_gen_char2;
+					}
+				}
+				
+				// Generate email patterns
+				if(sv_gen_first_clean != "" && sv_gen_last_clean != "")
+				{
+					sv_gen_emails = List();
+					sv_gen_emails.add(sv_gen_first_clean + "." + sv_gen_last_clean + "@" + domain);
+					sv_gen_emails.add(sv_gen_first_clean.subString(0, 1) + "." + sv_gen_last_clean + "@" + domain);
+					sv_gen_emails.add(sv_gen_first_clean + "@" + domain);
+					sv_gen_emails.add(sv_gen_first_clean + sv_gen_last_clean + "@" + domain);
+					sv_gen_emails.add(sv_gen_first_clean.subString(0, 1) + sv_gen_last_clean + "@" + domain);
+					
+					// Check MX records
+					sv_gen_mx_found = false;
+					sv_gen_dns_url = "https://dns.google/resolve?name=" + domain + "&type=MX";
+					try
+					{
+						sv_gen_dns_resp = invokeurl
+						[
+							url: sv_gen_dns_url
+							type: GET
+						];
+						if(sv_gen_dns_resp != null && sv_gen_dns_resp.containsKey("Answer"))
+						{
+							sv_gen_answers = sv_gen_dns_resp.get("Answer");
+							if(sv_gen_answers != null && sv_gen_answers.size() > 0)
+							{
+								sv_gen_mx_found = true;
+							}
+						}
+					}
+					catch(sv_gen_e_dns)
+					{
+						// DNS lookup failed
+					}
+					
+					if(sv_gen_mx_found == true)
+					{
+						// Validate generated emails using Perplexity
+						sv_gen_prompt = "Search the web to find the email address for:\n\n";
+						sv_gen_prompt = sv_gen_prompt + "Name: " + sv_name + "\n";
+						sv_gen_prompt = sv_gen_prompt + "Company: " + company_name_str + "\n";
+						sv_gen_prompt = sv_gen_prompt + "Domain: " + domain + "\n";
+						if(sv_title != null && (sv_title + "").trim() != "")
+						{
+							sv_gen_prompt = sv_gen_prompt + "Job Title: " + sv_title + "\n";
+						}
+						sv_gen_prompt = sv_gen_prompt + "\nPossible email addresses:\n";
+						sv_gen_prompt = sv_gen_prompt + "1. " + sv_gen_emails.get(0) + "\n";
+						sv_gen_prompt = sv_gen_prompt + "2. " + sv_gen_emails.get(1) + "\n";
+						sv_gen_prompt = sv_gen_prompt + "3. " + sv_gen_emails.get(2) + "\n";
+						sv_gen_prompt = sv_gen_prompt + "4. " + sv_gen_emails.get(3) + "\n";
+						sv_gen_prompt = sv_gen_prompt + "5. " + sv_gen_emails.get(4) + "\n";
+						sv_gen_prompt = sv_gen_prompt + "\nDetermine:\n";
+						sv_gen_prompt = sv_gen_prompt + "1. Does this person exist at this company?\n";
+						sv_gen_prompt = sv_gen_prompt + "2. What is the company's email pattern?\n";
+						sv_gen_prompt = sv_gen_prompt + "3. Which email is most likely correct?\n\n";
+						sv_gen_prompt = sv_gen_prompt + "Return ONLY valid JSON:\n";
+						sv_gen_prompt = sv_gen_prompt + "{\"person_exists\": true, \"linkedin_found\": true, \"linkedin_url\": \"url\", \"company_page_found\": true, \"detected_pattern\": \"firstname.lastname\", \"best_email\": \"" + sv_gen_emails.get(0) + "\", \"confidence\": \"high\"}";
+						
+						sv_gen_items = List();
+						sv_gen_item = Map();
+						sv_gen_item.put("role", "user");
+						sv_gen_item.put("content", sv_gen_prompt);
+						sv_gen_items.add(sv_gen_item);
+						
+						sv_gen_body = Map();
+						sv_gen_body.put("model", "sonar");
+						sv_gen_body.put("messages", sv_gen_items);
+						sv_gen_body.put("temperature", 0);
+						
+						try
+						{
+							sv_gen_resp = invokeurl
+							[
+								url: "https://api.perplexity.ai/chat/completions"
+								type: POST
+								body: sv_gen_body.toString()
+								headers: headers
+							];
+							
+							if(sv_gen_resp != null && sv_gen_resp.containsKey("choices"))
+							{
+								sv_gen_choices = sv_gen_resp.get("choices");
+								if(sv_gen_choices != null && sv_gen_choices.size() > 0)
+								{
+									sv_gen_first_choice = sv_gen_choices.get(0);
+									if(sv_gen_first_choice != null && sv_gen_first_choice.containsKey("message"))
+									{
+										sv_gen_msg = sv_gen_first_choice.get("message");
+										if(sv_gen_msg != null && sv_gen_msg.containsKey("content"))
+										{
+											sv_gen_raw = sv_gen_msg.get("content");
+											
+											sv_gen_json = sv_gen_raw;
+											sv_gen_s = sv_gen_raw.indexOf("{");
+											sv_gen_e = sv_gen_raw.lastIndexOf("}");
+											if(sv_gen_s >= 0 && sv_gen_e > sv_gen_s)
+											{
+												sv_gen_json = sv_gen_raw.subString(sv_gen_s, sv_gen_e + 1);
+											}
+											
+											try
+											{
+												sv_gen_data = sv_gen_json.toMap();
+												
+												if(sv_gen_data.containsKey("best_email"))
+												{
+													sv_gen_best = sv_gen_data.get("best_email");
+													if(sv_gen_best != null && (sv_gen_best + "").trim() != "" && (sv_gen_best + "").indexOf("@") > 0)
+													{
+														secondary_email = (sv_gen_best + "").trim().toLowerCase();
+														secondary_contact.put("email", secondary_email);
+														secondary_contact.put("email_generated", true);
+														secondary_contact.put("email_source", "pattern_generation");
+														
+														sv_gen_validation = Map();
+														sv_gen_validation.put("generated_from_name", sv_name);
+														sv_gen_validation.put("patterns_tried", sv_gen_emails);
+														
+														if(sv_gen_data.containsKey("person_exists"))
+														{
+															sv_gen_validation.put("person_exists", sv_gen_data.get("person_exists"));
+														}
+														if(sv_gen_data.containsKey("linkedin_found"))
+														{
+															sv_gen_validation.put("linkedin_found", sv_gen_data.get("linkedin_found"));
+														}
+														if(sv_gen_data.containsKey("linkedin_url"))
+														{
+															sv_gen_validation.put("linkedin_url", sv_gen_data.get("linkedin_url"));
+														}
+														if(sv_gen_data.containsKey("detected_pattern"))
+														{
+															sv_gen_validation.put("detected_pattern", sv_gen_data.get("detected_pattern"));
+														}
+														if(sv_gen_data.containsKey("confidence"))
+														{
+															sv_gen_validation.put("generation_confidence", sv_gen_data.get("confidence"));
+														}
+														
+														secondary_contact.put("email_generation_info", sv_gen_validation);
+													}
+												}
+											}
+											catch(sv_gen_e_parse)
+											{
+												// Failed to parse
+											}
+										}
+									}
+								}
+							}
+						}
+						catch(sv_gen_e_call)
+						{
+							// API call failed
+						}
+					}
+				}
+			}
+			
+			// Now validate the email (whether found or generated)
 			if(secondary_email != null && (secondary_email + "").trim() != "" && (secondary_email + "").trim() != "null")
 			{
 				sv_email = (secondary_email + "").trim().toLowerCase();
-				sv_name = ss.get("name");
-				sv_title = ss.get("job_title");
 				
 				// Initialize validation result
 				sv_result = Map();
