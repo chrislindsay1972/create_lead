@@ -668,26 +668,33 @@ for each  comp2 in matching_companies
 					if(gen_mx_found == true)
 					{
 						// Validate generated emails using Perplexity web search
-						gen_prompt = "Search the web to find the email address for:\n\n";
-						gen_prompt = gen_prompt + "Name: " + pv_name + "\n";
+						// IMPROVED PROMPT: More explicit about finding actual email pattern
+						gen_prompt = "IMPORTANT: Search the web to find the ACTUAL email address for this person. Do not guess - find real evidence.\n\n";
+						gen_prompt = gen_prompt + "Person: " + pv_name + "\n";
 						gen_prompt = gen_prompt + "Company: " + company_name_str + "\n";
 						gen_prompt = gen_prompt + "Domain: " + domain + "\n";
 						if(pv_title != null && (pv_title + "").trim() != "")
 						{
 							gen_prompt = gen_prompt + "Job Title: " + pv_title + "\n";
 						}
-						gen_prompt = gen_prompt + "\nI have generated these possible email addresses:\n";
-						gen_prompt = gen_prompt + "1. " + gen_emails.get(0) + "\n";
-						gen_prompt = gen_prompt + "2. " + gen_emails.get(1) + "\n";
-						gen_prompt = gen_prompt + "3. " + gen_emails.get(2) + "\n";
-						gen_prompt = gen_prompt + "4. " + gen_emails.get(3) + "\n";
-						gen_prompt = gen_prompt + "5. " + gen_emails.get(4) + "\n";
-						gen_prompt = gen_prompt + "\nPlease search to determine:\n";
-						gen_prompt = gen_prompt + "1. Does this person exist at this company? (LinkedIn, company website)\n";
-						gen_prompt = gen_prompt + "2. What is the company's email pattern? (look for other employee emails)\n";
-						gen_prompt = gen_prompt + "3. Which email from the list is most likely correct?\n\n";
-						gen_prompt = gen_prompt + "Return ONLY valid JSON:\n";
-						gen_prompt = gen_prompt + "{\"person_exists\": true, \"linkedin_found\": true, \"linkedin_url\": \"url\", \"company_page_found\": true, \"detected_pattern\": \"firstname.lastname\", \"best_email\": \"" + gen_emails.get(0) + "\", \"confidence\": \"high\"}";
+						gen_prompt = gen_prompt + "\nSTEP 1 - Find the company email pattern:\n";
+						gen_prompt = gen_prompt + "Search for OTHER employees emails at " + company_name_str + " to determine the pattern.\n";
+						gen_prompt = gen_prompt + "Look for emails like: contact@" + domain + ", info@" + domain + ", or employee emails in job postings, news, LinkedIn.\n";
+						gen_prompt = gen_prompt + "Common patterns: firstname@domain, firstname.lastname@domain, f.lastname@domain\n\n";
+						gen_prompt = gen_prompt + "STEP 2 - Find this specific person email:\n";
+						gen_prompt = gen_prompt + "Search for \"" + pv_name + " email " + domain + "\" or \"" + pv_name + " " + company_name_str + " contact\"\n\n";
+						gen_prompt = gen_prompt + "Possible email formats for " + pv_name + ":\n";
+						gen_prompt = gen_prompt + "1. " + gen_emails.get(0) + " (firstname.lastname)\n";
+						gen_prompt = gen_prompt + "2. " + gen_emails.get(1) + " (f.lastname)\n";
+						gen_prompt = gen_prompt + "3. " + gen_emails.get(2) + " (firstname only)\n";
+						gen_prompt = gen_prompt + "4. " + gen_emails.get(3) + " (firstnamelastname)\n";
+						gen_prompt = gen_prompt + "5. " + gen_emails.get(4) + " (flastname)\n\n";
+						gen_prompt = gen_prompt + "Based on your search, which email format does " + company_name_str + " actually use?\n\n";
+						gen_prompt = gen_prompt + "Return ONLY valid JSON with the ACTUAL email you found evidence for:\n";
+						gen_prompt = gen_prompt + "{\"person_exists\": true, \"linkedin_found\": true, \"linkedin_url\": \"url\", \"company_page_found\": true, ";
+						gen_prompt = gen_prompt + "\"other_emails_found\": [\"example@" + domain + "\"], ";
+						gen_prompt = gen_prompt + "\"detected_pattern\": \"firstname\", \"best_email\": \"" + gen_emails.get(2) + "\", \"confidence\": \"high\", ";
+						gen_prompt = gen_prompt + "\"evidence\": \"Found pattern from other employee emails\"}";
 						
 						gen_items = List();
 						gen_item = Map();
@@ -1190,27 +1197,32 @@ for each  comp2 in matching_companies
 					
 					if(sv_gen_mx_found == true)
 					{
-						// Validate generated emails using Perplexity
-						sv_gen_prompt = "Search the web to find the email address for:\n\n";
-						sv_gen_prompt = sv_gen_prompt + "Name: " + sv_name + "\n";
+						// Validate generated emails using Perplexity - IMPROVED PROMPT
+						sv_gen_prompt = "IMPORTANT: Search the web to find the ACTUAL email address for this person. Do not guess - find real evidence.\n\n";
+						sv_gen_prompt = sv_gen_prompt + "Person: " + sv_name + "\n";
 						sv_gen_prompt = sv_gen_prompt + "Company: " + company_name_str + "\n";
 						sv_gen_prompt = sv_gen_prompt + "Domain: " + domain + "\n";
 						if(sv_title != null && (sv_title + "").trim() != "")
 						{
 							sv_gen_prompt = sv_gen_prompt + "Job Title: " + sv_title + "\n";
 						}
-						sv_gen_prompt = sv_gen_prompt + "\nPossible email addresses:\n";
-						sv_gen_prompt = sv_gen_prompt + "1. " + sv_gen_emails.get(0) + "\n";
-						sv_gen_prompt = sv_gen_prompt + "2. " + sv_gen_emails.get(1) + "\n";
-						sv_gen_prompt = sv_gen_prompt + "3. " + sv_gen_emails.get(2) + "\n";
-						sv_gen_prompt = sv_gen_prompt + "4. " + sv_gen_emails.get(3) + "\n";
-						sv_gen_prompt = sv_gen_prompt + "5. " + sv_gen_emails.get(4) + "\n";
-						sv_gen_prompt = sv_gen_prompt + "\nDetermine:\n";
-						sv_gen_prompt = sv_gen_prompt + "1. Does this person exist at this company?\n";
-						sv_gen_prompt = sv_gen_prompt + "2. What is the company's email pattern?\n";
-						sv_gen_prompt = sv_gen_prompt + "3. Which email is most likely correct?\n\n";
-						sv_gen_prompt = sv_gen_prompt + "Return ONLY valid JSON:\n";
-						sv_gen_prompt = sv_gen_prompt + "{\"person_exists\": true, \"linkedin_found\": true, \"linkedin_url\": \"url\", \"company_page_found\": true, \"detected_pattern\": \"firstname.lastname\", \"best_email\": \"" + sv_gen_emails.get(0) + "\", \"confidence\": \"high\"}";
+						sv_gen_prompt = sv_gen_prompt + "\nSTEP 1 - Find the company email pattern:\n";
+						sv_gen_prompt = sv_gen_prompt + "Search for OTHER employees emails at " + company_name_str + " to determine the pattern.\n";
+						sv_gen_prompt = sv_gen_prompt + "Look for emails in job postings, news, LinkedIn, or company contact pages.\n\n";
+						sv_gen_prompt = sv_gen_prompt + "STEP 2 - Find this specific person email:\n";
+						sv_gen_prompt = sv_gen_prompt + "Search for \"" + sv_name + " email " + domain + "\" or \"" + sv_name + " " + company_name_str + " contact\"\n\n";
+						sv_gen_prompt = sv_gen_prompt + "Possible email formats for " + sv_name + ":\n";
+						sv_gen_prompt = sv_gen_prompt + "1. " + sv_gen_emails.get(0) + " (firstname.lastname)\n";
+						sv_gen_prompt = sv_gen_prompt + "2. " + sv_gen_emails.get(1) + " (f.lastname)\n";
+						sv_gen_prompt = sv_gen_prompt + "3. " + sv_gen_emails.get(2) + " (firstname only)\n";
+						sv_gen_prompt = sv_gen_prompt + "4. " + sv_gen_emails.get(3) + " (firstnamelastname)\n";
+						sv_gen_prompt = sv_gen_prompt + "5. " + sv_gen_emails.get(4) + " (flastname)\n\n";
+						sv_gen_prompt = sv_gen_prompt + "Based on your search, which email format does " + company_name_str + " actually use?\n\n";
+						sv_gen_prompt = sv_gen_prompt + "Return ONLY valid JSON with the ACTUAL email you found evidence for:\n";
+						sv_gen_prompt = sv_gen_prompt + "{\"person_exists\": true, \"linkedin_found\": true, \"linkedin_url\": \"url\", \"company_page_found\": true, ";
+						sv_gen_prompt = sv_gen_prompt + "\"other_emails_found\": [\"example@" + domain + "\"], ";
+						sv_gen_prompt = sv_gen_prompt + "\"detected_pattern\": \"firstname\", \"best_email\": \"" + sv_gen_emails.get(2) + "\", \"confidence\": \"high\", ";
+						sv_gen_prompt = sv_gen_prompt + "\"evidence\": \"Found pattern from other employee emails\"}";
 						
 						sv_gen_items = List();
 						sv_gen_item = Map();
