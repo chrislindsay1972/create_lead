@@ -1,0 +1,229 @@
+map renderEmailfromZohomail(string message_id, string account_id, string folder_id, string workdrive_folder_id, string subject, string sender)
+{
+// === Inputs ===
+domain = "https://mail.zoho.eu";
+allowed_ext = {"PDF","pdf","xls","xlsx","csv"};
+uploaded = List();
+skipped = List();
+errors = List();
+// 1) Get message details (subject + from) — only as fallback if inputs are blank
+msgInfoUrl = domain + "/api/accounts/" + account_id + "/folders/" + folder_id + "/messages/" + message_id;
+msgInfo = invokeurl
+[
+	url :msgInfoUrl
+	type :GET
+	connection:"zoho_mail1"
+];
+fromEmail = sender;
+// start with input
+if(isNull(subject) || subject == "" || isNull(fromEmail) || fromEmail == "")
+{
+	if(msgInfo.containsKey("status") && msgInfo.get("status").get("code") == 200 && msgInfo.containsKey("data"))
+	{
+		messageData = msgInfo.get("data");
+		if((isNull(subject) || subject == "") && messageData.containsKey("subject") && !isNull(messageData.get("subject")))
+		{
+			subject = messageData.get("subject");
+		}
+		if(isNull(fromEmail) || fromEmail == "")
+		{
+			if(messageData.containsKey("fromAddress") && !isNull(messageData.get("fromAddress")))
+			{
+				fromEmail = messageData.get("fromAddress");
+			}
+			else if(messageData.containsKey("sender") && !isNull(messageData.get("sender")))
+			{
+				fromEmail = messageData.get("sender");
+			}
+		}
+	}
+}
+// Extract just the email if "Name <email@domain>"
+if(!isNull(fromEmail))
+{
+	lt = fromEmail.indexOf("<");
+	gt = fromEmail.indexOf(">");
+	if(lt != -1 && gt != -1 && gt > lt + 1)
+	{
+		fromEmail = fromEmail.subString(lt + 1,gt);
+	}
+}
+// Sanitize for filenames
+subjectSafe = if(isNull(subject),"",subject).replaceAll("[\\\\/\\:\\*\\?\\\"\\<\\>\\|]","_").trim();
+fromSafe = if(isNull(fromEmail),"",fromEmail).replaceAll("[\\\\/\\:\\*\\?\\\"\\<\\>\\|]","_").trim();
+// 2) Get attachment info
+attachInfoUrl = domain + "/api/accounts/" + account_id + "/folders/" + folder_id + "/messages/" + message_id + "/attachmentinfo";
+attMeta = invokeurl
+[
+	url :attachInfoUrl
+	type :GET
+	connection:"zoho_mail1"
+];
+if(!(attMeta.containsKey("status") && attMeta.get("status").get("code") == 200))
+{
+	ret = Map();
+	ret.put("status","failed");
+	ret.put("reason",attMeta.get("data"));
+	ret.put("uploaded",uploaded);
+	ret.put("skipped",skipped);
+	ret.put("errors",errors);
+	return ret;
+}
+attList = List();
+if(attMeta.containsKey("data"))
+{
+	d = attMeta.get("data");
+	if(d.containsKey("attachments"))
+	{
+		attList = d.get("attachments");
+	}
+}
+if(attList.isEmpty())
+{
+	ret = Map();
+	ret.put("status","no_attachments");
+	ret.put("uploaded",uploaded);
+	ret.put("skipped",skipped);
+	ret.put("errors",errors);
+	ret.put("raw",attMeta);
+	return ret;
+}
+// 3) Process each attachment
+for each  att in attList
+{
+	try 
+	{
+		attId = att.get("attachmentId");
+		rawName = if(att.containsKey("attachmentName"),att.get("attachmentName"),if(att.containsKey("name"),att.get("name"),if(att.containsKey("fileName"),att.get("fileName"),"file")));
+		cleanName1 = if(isNull(rawName),"file",rawName);
+		cleanName1 = cleanName1.replaceAll("[\\\\/\\:\\*\\?\\\"\\<\\>\\|]","_").trim();
+		// Use the ORIGINAL filename for extension parsing
+		cleanName = cleanName1;
+		// Get extension + base
+		ext = "";
+		baseName = cleanName;
+		dotIdx = cleanName.lastIndexOf(".");
+		if(dotIdx != -1 && dotIdx < cleanName.length() - 1)
+		{
+			ext = cleanName.subString(dotIdx + 1,cleanName.length()).toLowerCase();
+			if(dotIdx > 0)
+			{
+				baseName = cleanName.subString(0,dotIdx);
+			}
+		}
+		if(!allowed_ext.contains(ext))
+		{
+			sk = Map();
+			sk.put("filename",cleanName);
+			sk.put("reason","extension_not_allowed");
+			skipped.add(sk);
+			continue;
+		}
+		// ===== NEW FILENAME RULES =====
+		// Strip all digits from baseName.
+		// For the sender email, remove digits only from the LOCAL part so domain digits are kept.
+		baseNoDigits = baseName.replaceAll("[0-9]","");
+		fromSafeNoDigits = fromSafe;
+		atPosDomain = fromSafeNoDigits.indexOf("@");
+		if(atPosDomain > -1)
+		{
+			localPart = fromSafeNoDigits.subString(0,atPosDomain);
+			domainPart = fromSafeNoDigits.subString(atPosDomain,fromSafeNoDigits.length());
+			localPart = localPart.replaceAll("[0-9]","");
+			fromSafeNoDigits = localPart + domainPart;
+		}
+		else
+		{
+			fromSafeNoDigits = fromSafeNoDigits.replaceAll("[0-9]","");
+		}
+		// *** LOGIC: reduce email to 1 char of local part (e.g. abc@efg.com -> a@efg.com) ***
+		emailOneChar = fromSafeNoDigits;
+		atPos = emailOneChar.indexOf("@");
+		if(atPos > 1)
+		{
+			emailOneChar = emailOneChar.subString(0,1) + emailOneChar.subString(atPos,emailOneChar.length());
+		}
+		fromSafeNoDigits = emailOneChar;
+		// Build new stem: <BaseNoDigits><MS> <Sender (local trimmed, domain intact)>
+		newStem = baseNoDigits;
+		// Milliseconds (only guaranteed numeric part we add ourselves)
+		msPart = zoho.currenttime.toString("SSS");
+		timeTag = msPart;
+		//newStem = newStem + timeTag;
+		// Email at the very end
+		if(fromSafeNoDigits != "")
+		{
+			newStem = newStem + " " + fromSafeNoDigits;
+		}
+		// Build full name with extension
+		newName = newStem;
+		num = randomNumber(0,10000);
+		// 0–9999
+		code = num.toString();
+		if(code.length() == 1)
+		{
+			code = "000" + code;
+		}
+		else if(code.length() == 2)
+		{
+			code = "00" + code;
+		}
+		else if(code.length() == 3)
+		{
+			code = "0" + code;
+		}
+		if(ext != "")
+		{
+			newName = code + " " + newName + "." + ext;
+		}
+		// Enforce MAX 50 chars, keeping the RIGHTMOST 50 chars
+		maxLen = 50;
+		if(newName.length() > maxLen)
+		{
+			startIdx = newName.length() - maxLen;
+			newName = newName.subString(startIdx,newName.length());
+		}
+		// ===== END NEW FILENAME RULES =====
+		// Download
+		dlUrl = domain + "/api/accounts/" + account_id + "/folders/" + folder_id + "/messages/" + message_id + "/attachments/" + attId;
+		fileObj = invokeurl
+		[
+			url :dlUrl
+			type :GET
+			connection:"zoho_mail1"
+		];
+		// Upload (zoho_drive1)
+		wdResp = zoho.workdrive.uploadFile(fileObj,workdrive_folder_id,encodeUrl(newName),false,"zoho_drive1");
+		up = Map();
+		up.put("attachment_id",attId);
+		up.put("original_filename",cleanName);
+		up.put("new_filename",newName);
+		up.put("workdrive_response",wdResp);
+		uploaded.add(up);
+	}
+	catch (e)
+	{
+		er = Map();
+		er.put("attachment",att);
+		er.put("error",e.toString());
+		errors.add(er);
+	}
+}
+// 4) Summary
+result_status = "ok";
+if(uploaded.isEmpty() && !errors.isEmpty())
+{
+	result_status = "failed";
+}
+if(uploaded.isEmpty() && skipped.size() > 0 && errors.isEmpty())
+{
+	result_status = "no_allowed_attachments";
+}
+ret = Map();
+ret.put("status",result_status);
+ret.put("uploaded",uploaded);
+ret.put("skipped",skipped);
+ret.put("errors",errors);
+ret.put("filename",cleanName);
+return ret;
+}
