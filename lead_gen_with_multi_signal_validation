@@ -4,19 +4,9 @@ out = Map();
 // End-to-end: discover UK companies for a sector + size (up to 20, paginated),
 // then enrich each company with TWO contacts (primary + secondary) and email pattern info.
 // 
-// EMAIL GENERATION + VALIDATION via MULTI-SIGNAL approach:
-// 
-// When Perplexity doesn't find an email, we GENERATE probable emails:
-// - Parse contact name into first/last (handles "Sarah O'Toole" -> sarah, otoole)
-// - Generate 5 patterns: firstname.lastname, f.lastname, firstname, firstnamelastname, flastname
-// - Validate via Perplexity web search to find best match
-//
-// Validation signals:
-// - Syntax validation
-// - MX record check (domain has mail servers)
-// - Email pattern analysis (firstname.lastname etc)
-// - Name-to-email matching
-// - LinkedIn/Web search validation (person exists at company)
+// EMAIL GENERATION + VALIDATION via MULTI-SIGNAL approach
+// When Perplexity does not find an email, we GENERATE probable emails
+// and validate via web search to find best match
 //
 // Constraints respected:
 // - NO while
@@ -611,25 +601,33 @@ for each  comp2 in matching_companies
 					}
 				}
 				
-				// Clean names - remove apostrophes, hyphens for email (O'Toole -> otoole)
-				gen_first_clean = "";
-				for each char_idx in gen_first.length().range(0, gen_first.length())
+				// Clean names - remove apostrophes, hyphens for email (OToole from O'Toole)
+				// Remove apostrophes from first name
+				gen_first_clean = gen_first;
+				gen_apos_pos = gen_first_clean.indexOf("'");
+				if(gen_apos_pos >= 0)
 				{
-					gen_char = gen_first.subString(char_idx, char_idx + 1);
-					if(gen_char != "'" && gen_char != "-" && gen_char != " ")
-					{
-						gen_first_clean = gen_first_clean + gen_char;
-					}
+					gen_first_clean = gen_first_clean.subString(0, gen_apos_pos) + gen_first_clean.subString(gen_apos_pos + 1, gen_first_clean.length());
+				}
+				// Remove hyphens from first name
+				gen_hyph_pos = gen_first_clean.indexOf("-");
+				if(gen_hyph_pos >= 0)
+				{
+					gen_first_clean = gen_first_clean.subString(0, gen_hyph_pos) + gen_first_clean.subString(gen_hyph_pos + 1, gen_first_clean.length());
 				}
 				
-				gen_last_clean = "";
-				for each char_idx2 in gen_last.length().range(0, gen_last.length())
+				// Remove apostrophes from last name
+				gen_last_clean = gen_last;
+				gen_apos_pos2 = gen_last_clean.indexOf("'");
+				if(gen_apos_pos2 >= 0)
 				{
-					gen_char2 = gen_last.subString(char_idx2, char_idx2 + 1);
-					if(gen_char2 != "'" && gen_char2 != "-" && gen_char2 != " ")
-					{
-						gen_last_clean = gen_last_clean + gen_char2;
-					}
+					gen_last_clean = gen_last_clean.subString(0, gen_apos_pos2) + gen_last_clean.subString(gen_apos_pos2 + 1, gen_last_clean.length());
+				}
+				// Remove hyphens from last name
+				gen_hyph_pos2 = gen_last_clean.indexOf("-");
+				if(gen_hyph_pos2 >= 0)
+				{
+					gen_last_clean = gen_last_clean.subString(0, gen_hyph_pos2) + gen_last_clean.subString(gen_hyph_pos2 + 1, gen_last_clean.length());
 				}
 				
 				// Generate email patterns if we have both names
@@ -1128,24 +1126,32 @@ for each  comp2 in matching_companies
 				}
 				
 				// Clean names - remove apostrophes, hyphens
-				sv_gen_first_clean = "";
-				for each sv_char_idx in sv_gen_first.length().range(0, sv_gen_first.length())
+				// Remove apostrophes from first name
+				sv_gen_first_clean = sv_gen_first;
+				sv_gen_apos_pos = sv_gen_first_clean.indexOf("'");
+				if(sv_gen_apos_pos >= 0)
 				{
-					sv_gen_char = sv_gen_first.subString(sv_char_idx, sv_char_idx + 1);
-					if(sv_gen_char != "'" && sv_gen_char != "-" && sv_gen_char != " ")
-					{
-						sv_gen_first_clean = sv_gen_first_clean + sv_gen_char;
-					}
+					sv_gen_first_clean = sv_gen_first_clean.subString(0, sv_gen_apos_pos) + sv_gen_first_clean.subString(sv_gen_apos_pos + 1, sv_gen_first_clean.length());
+				}
+				// Remove hyphens from first name
+				sv_gen_hyph_pos = sv_gen_first_clean.indexOf("-");
+				if(sv_gen_hyph_pos >= 0)
+				{
+					sv_gen_first_clean = sv_gen_first_clean.subString(0, sv_gen_hyph_pos) + sv_gen_first_clean.subString(sv_gen_hyph_pos + 1, sv_gen_first_clean.length());
 				}
 				
-				sv_gen_last_clean = "";
-				for each sv_char_idx2 in sv_gen_last.length().range(0, sv_gen_last.length())
+				// Remove apostrophes from last name
+				sv_gen_last_clean = sv_gen_last;
+				sv_gen_apos_pos2 = sv_gen_last_clean.indexOf("'");
+				if(sv_gen_apos_pos2 >= 0)
 				{
-					sv_gen_char2 = sv_gen_last.subString(sv_char_idx2, sv_char_idx2 + 1);
-					if(sv_gen_char2 != "'" && sv_gen_char2 != "-" && sv_gen_char2 != " ")
-					{
-						sv_gen_last_clean = sv_gen_last_clean + sv_gen_char2;
-					}
+					sv_gen_last_clean = sv_gen_last_clean.subString(0, sv_gen_apos_pos2) + sv_gen_last_clean.subString(sv_gen_apos_pos2 + 1, sv_gen_last_clean.length());
+				}
+				// Remove hyphens from last name
+				sv_gen_hyph_pos2 = sv_gen_last_clean.indexOf("-");
+				if(sv_gen_hyph_pos2 >= 0)
+				{
+					sv_gen_last_clean = sv_gen_last_clean.subString(0, sv_gen_hyph_pos2) + sv_gen_last_clean.subString(sv_gen_hyph_pos2 + 1, sv_gen_last_clean.length());
 				}
 				
 				// Generate email patterns
